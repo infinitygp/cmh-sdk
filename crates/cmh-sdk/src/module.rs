@@ -297,7 +297,9 @@ impl Module {
     /// read back and sent again until the module reports it, because a
     /// module ignores it for a moment after entering software mode. That
     /// can take up to half a second, after which
-    /// [`Error::BrightnessNotApplied`] is returned.
+    /// [`Error::BrightnessNotApplied`] is returned. Any other error comes
+    /// from a write or a read-back that failed and does not say whether the
+    /// level was applied.
     pub fn set_display_brightness(&self, level: u8) -> Result<()> {
         let report = display_brightness_report(self.kind, level)?;
         self.require_software_mode()?;
