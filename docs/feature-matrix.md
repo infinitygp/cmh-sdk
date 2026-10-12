@@ -64,11 +64,11 @@ being seated (experiment 0011).
 ## Open questions
 
 1. Base orientation values other than flat and upright on the short side.
-2. Do the display modules report input when they are not in software mode,
-   and what do they show then? What does `03 3a 00` change?
+2. Does the Dial Display report input while in standalone mode (the keys
+   do not, experiment 0017)?
 3. Two bases at once: the mount path logic handles it in tests only.
-4. Display brightness level 0. Do LED and brightness settings survive a
-   power cycle?
+4. What the displays show between enabling software mode and the first
+   image.
 5. Position on the base: purpose of the 2 x 6 pin block; whether other
    base units are wired the same as the one examined
    ([protocol/placement.md](protocol/placement.md)).

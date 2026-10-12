@@ -63,7 +63,8 @@ The device info payload has the layout described in
 
 Sent by the vendor application right after opening the module and again
 before it starts drawing. `03 49 00` has never been observed, so the SDK
-refuses to send it.
+refuses to send it. After power-up the dial plays a built-in animation
+until software mode is enabled (experiment 0017).
 
 ## Feature write: display brightness
 
@@ -72,7 +73,7 @@ refuses to send it.
 | Report | `03 44 <level>`, 32 bytes, `SET_REPORT` feature |
 | Values | percent; the vendor application was seen sending 40..55 in steps of 5 |
 | Reply | none |
-| Confidence | CONFIRMED on the wire for the vendor application and the SDK (experiment 0009); only 40..55 and 100 have been sent to the dial |
+| Confidence | CONFIRMED on the wire (experiment 0009) and on the device: level 0 turns the display completely dark (experiment 0017). Not remembered across a power cycle. |
 
 ```text
 03 44 32      brightness 50

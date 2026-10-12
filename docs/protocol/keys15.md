@@ -57,11 +57,16 @@ Device info payload (11 bytes):
 | Report | `03 3a <mode>`, 32 bytes, `SET_REPORT` feature |
 | Values | `01` application control, `00` standalone |
 | Reply | none |
-| Confidence | CONFIRMED as sent by the vendor application; effect LIKELY |
+| Confidence | CONFIRMED (experiments 0003, 0017) |
+
+In standalone mode the keys play a built-in animation and send no input
+reports at all; key presses only arrive in software mode. The module starts
+in standalone mode after every power-up, so the host has to send `03 3a 01`
+after each connect.
 
 The vendor application sends `03 3a 00` right after opening the module and
 `03 3a 01` about five seconds later, immediately before the first image
-upload. What the module does differently in mode `00` has not been observed.
+upload.
 
 SDK: `Module::set_software_mode`.
 
@@ -72,7 +77,7 @@ SDK: `Module::set_software_mode`.
 | Report | `03 34 <level>`, 32 bytes, `SET_REPORT` feature |
 | Values | percent; the vendor application was seen sending 40..55 in steps of 5 |
 | Reply | none |
-| Confidence | CONFIRMED on the wire and on the device (experiment 0009: level 15 is clearly dimmer); the range below 15 is LIKELY |
+| Confidence | CONFIRMED on the wire and on the device (experiment 0009: level 15 is clearly dimmer); level 0 was only tried on the dial |
 
 ```text
 03 34 32      brightness 50
@@ -118,7 +123,8 @@ Uploads of all 15 keys take about 150 ms. Images are re-sent by the vendor
 application on every start, so they are not stored permanently by this
 command. LIKELY.
 
-Images stay on the keys after the sending program exits (0005).
+Images stay on the keys after the sending program exits (0005) but are
+gone after a power cycle (0017).
 
 SDK: `Module::set_image(key, jpeg)`; sends nothing unless the data is a
 baseline 4:4:4 JPEG of exactly 72 x 72 and at most 16 KiB.

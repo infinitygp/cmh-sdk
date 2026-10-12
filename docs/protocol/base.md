@@ -57,7 +57,8 @@ application offers nothing for `04`.
 `<persist>` is `00` for live changes. The vendor application sends the
 colour once more with `01` a few seconds after the user stops adjusting,
 which most likely stores it in the module (LIKELY). The SDK always sends
-`00`.
+`00`, and settings sent that way are lost on power-down (experiment 0017,
+seen on the 3 Knobs).
 
 ```text
 02 2d 00 00 74 3a df 00      colour 74 3a df

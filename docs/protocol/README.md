@@ -74,11 +74,18 @@ Channel 1 (`0x2b`) is only used by the base heartbeat, which carries the
 orientation of the base ([base.md](base.md)). Channels 2 to 4 have not been
 observed. UNKNOWN.
 
-Modules send input without any initialisation from the host: the basic
-modules never receive a single output or feature write from the vendor
-application (experiment 0003), and all modules report input with no vendor
-software running (experiment 0005). CONFIRMED. Whether the display modules
-also report input outside software mode is UNKNOWN.
+The basic modules send input without any initialisation from the host:
+they never receive a single output or feature write from the vendor
+application (experiment 0003) and report input with no vendor software
+running (experiment 0005). CONFIRMED.
+
+The 15 LCD Keys only report input in software mode (experiment 0017), which
+has to be enabled after every power-up. Whether the same holds for the Dial
+Display is UNKNOWN.
+
+Nothing a host sets is remembered across a power cycle unless the vendor
+application's persist flag is used: software mode, display brightness, LED
+settings and images are all back to their defaults (experiment 0017).
 
 ## Feature reports
 
