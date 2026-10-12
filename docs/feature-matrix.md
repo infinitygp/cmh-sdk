@@ -27,8 +27,9 @@ not. Firmware: Base
 | Base orientation (flat / upright) | done | n/a | n/a | n/a | n/a | n/a |
 | Software mode switch | n/a | done | n/a | n/a | done (on only) | n/a |
 | Image upload | n/a | done | n/a | n/a | done | n/a |
-| Display brightness | n/a | done | n/a | n/a | done | n/a |
+| Display brightness, set and read back | n/a | done | n/a | n/a | done | n/a |
 | LED effect / colour / brightness | done | n/a | done | n/a | n/a | done |
+| LED brightness read back | done | n/a | done | n/a | n/a | open |
 | Hot-plug (polling, identity by serial) | done | done | done | done | done | done |
 | Mount path (USB port path below the base) | done | done | done | done | done | open |
 | Grid cells and rotation from the mount path | n/a | done | done | done | done | done |
@@ -78,8 +79,9 @@ being seated (experiment 0011).
    see [linux-udev.md](linux-udev.md).
 7. The declared minimum Rust version (1.88) follows from the language
    features used; it has not been built with exactly that toolchain.
-8. Feature reports the modules declare but the vendor application never
-   reads (probably LED settings and serial read-back), and the commands
-   listed in the
+8. Feature reports whose bytes are known but not understood (experiment
+   0018). The commands listed in the
    [protocol reference](protocol/README.md#commands-that-must-never-be-sent)
-   as destructive: deliberately not touched.
+   as destructive were deliberately not touched.
+9. The running LED effect and colour cannot be read back; a host has to
+   remember what it set.

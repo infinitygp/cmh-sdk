@@ -104,7 +104,16 @@ Read response layout (CONFIRMED, experiment 0003):
 | Running firmware version | `0x2e` | `0x38` | `0x48` | CONFIRMED |
 | Device info | `0x31` | `0x3b` | `0x4b` | CONFIRMED |
 | Fader positions (5 Faders only) | `0x33` | - | - | CONFIRMED |
-| Other IDs declared in the descriptor | `0x2d` `0x2f` `0x30` `0x32` `0x34` `0x35` `0x36` | `0x37` `0x39` `0x3a` `0x3c` `0x3d` `0x3e` | `0x47` `0x49` `0x4a` `0x4c` `0x4d` `0x4e` | UNKNOWN, never read by the vendor application in our captures |
+| LED brightness per zone | `0x32` | - | - | CONFIRMED (0018) |
+| Display brightness | - | `0x3c` | `0x4c` | CONFIRMED (0018) |
+| Serial number, same text as the USB string | `0x30` | `0x3a` | `0x4a` | CONFIRMED (0018) |
+| Older firmware version (factory or fallback) | `0x2d` | `0x37` | `0x47` | CONFIRMED bytes, LIKELY meaning |
+| Second copy of the running firmware version | `0x2f` | `0x39` | `0x49` | CONFIRMED bytes, UNKNOWN purpose |
+| LED effect per zone as stored, not as running | `0x34` | - | - | LIKELY (0018) |
+| Unknown | `0x35` `0x36` | `0x3d` `0x3e` | `0x4d` `0x4e` | UNKNOWN, bytes in experiment 0018 |
+
+The vendor application reads only the first three rows of this table; the
+rest was read once in experiment 0018.
 
 Firmware payload: 4 bytes of unknown meaning (constant per firmware build,
 possibly a checksum) followed by 11 ASCII characters `NN.NN.NN.NN`.
