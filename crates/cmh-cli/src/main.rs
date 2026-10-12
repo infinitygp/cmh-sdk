@@ -6,7 +6,9 @@ use std::time::{Duration, Instant};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use cmh_sdk::fixture::{Direction, Fixture, Record};
 use cmh_sdk::protocol::InputMessage;
-use cmh_sdk::{Error, HidInterface, InputDecoder, LedMode, Manager, Module, ModuleKind, Result};
+use cmh_sdk::{
+    Error, HidInterface, InputDecoder, LedMode, Manager, Module, ModuleKind, Placement, Result,
+};
 
 #[derive(Parser)]
 #[command(name = "cmh", about = "Cooler Master MasterHUB diagnostics", version)]
@@ -223,6 +225,20 @@ fn label(interface: &HidInterface) -> String {
     )
 }
 
+fn cells(placement: Option<Placement>) -> String {
+    match placement {
+        Some(p) => format!(
+            "columns {}-{} rows {}-{} turned {}",
+            p.column,
+            p.column + p.columns - 1,
+            p.row,
+            p.row + p.rows - 1,
+            p.rotation.degrees()
+        ),
+        None => "?".to_owned(),
+    }
+}
+
 fn dotted(path: Option<Vec<u8>>) -> String {
     match path {
         Some(path) => path.iter().map(u8::to_string).collect::<Vec<_>>().join("."),
@@ -259,6 +275,9 @@ fn list(descriptors: bool) -> Result<()> {
             dotted(interface.port_chain.clone()),
             dotted(manager.mount_path(interface))
         );
+        if interface.kind != ModuleKind::Base {
+            println!("    placement: {}", cells(manager.placement(interface)));
+        }
         if descriptors {
             let descriptor = manager
                 .open_interface(interface)
@@ -395,10 +414,11 @@ fn monitor(select: &Select, raw: bool, heartbeat: bool, limit: Option<Duration>)
                 match manager.open_interface(interface) {
                     Ok(mut module) => {
                         println!(
-                            "# {:9.3} arrived {} mount_path={}",
+                            "# {:9.3} arrived {} mount_path={} placement: {}",
                             stamp(start),
                             label(interface),
-                            dotted(manager.mount_path(interface))
+                            dotted(manager.mount_path(interface)),
+                            cells(manager.placement(interface))
                         );
                         if interface.kind.capabilities().faders > 0 {
                             match module.fader_positions() {

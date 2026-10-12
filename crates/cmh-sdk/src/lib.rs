@@ -10,6 +10,7 @@
 //! - `transport` (private): HID enumeration and raw report I/O
 //! - [`module`]: typed operations on one open module
 //! - [`manager`]: discovery and hot-plug tracking
+//! - [`placement`]: where a module sits on the base
 //! - [`fixture`]: text format for recorded reports
 //!
 //! Only behaviour that was confirmed against real hardware is implemented;
@@ -43,6 +44,7 @@ pub mod input;
 mod location;
 pub mod manager;
 pub mod module;
+pub mod placement;
 pub mod protocol;
 mod transport;
 
@@ -51,5 +53,6 @@ pub use error::{Error, Result};
 pub use input::{InputDecoder, InputEvent};
 pub use manager::{HotplugEvent, Manager};
 pub use module::Module;
+pub use placement::{Placement, Rotation};
 pub use protocol::led::LedMode;
 pub use transport::{HidInterface, enumerate};

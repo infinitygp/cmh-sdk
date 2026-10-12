@@ -6,6 +6,7 @@ use crate::devices::ModuleKind;
 use crate::error::{Error, Result};
 use crate::location::BASE_CONTROLLER_PATH;
 use crate::module::Module;
+use crate::placement::{self, Placement};
 use crate::transport::{self, HidInterface, RawDevice};
 
 /// A module arrived or left between two [`Manager::refresh`] calls.
@@ -63,6 +64,12 @@ impl Manager {
     /// module. The base itself yields its controller path.
     pub fn mount_path(&self, interface: &HidInterface) -> Option<Vec<u8>> {
         mount_path(&self.known, interface)
+    }
+
+    /// The grid cells a module covers on its base and how it is turned,
+    /// worked out from its [`mount_path`](Self::mount_path).
+    pub fn placement(&self, interface: &HidInterface) -> Option<Placement> {
+        placement::placement(interface.kind, &self.mount_path(interface)?)
     }
 
     /// Opens the module with the given serial number.
