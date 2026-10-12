@@ -47,7 +47,7 @@ being seated (experiment 0011).
 
 | Part | Status |
 |---|---|
-| `Deck`: discovery, hot-plug, one event stream, commands by module ID | done on hardware (Windows), poll timing measured (experiment 0016); logic covered by tests with a scripted backend |
+| `Deck`: discovery, hot-plug, one event stream, commands by module ID | done on hardware (Windows; on Linux across a power cycle, experiment 0021), poll timing measured (experiment 0016); logic covered by tests with a scripted backend |
 | `Manager` / `Module`: listing and single-module access | done |
 | `placement`: cells and rotation | done |
 | `picture` (cargo feature `image`): PNG / JPEG / pixels to the displays' JPEG | done on the keys; conversion output is checked against the upload rules in tests |
@@ -82,11 +82,10 @@ being seated (experiment 0011).
 5. Behaviour on a clean exit of the vendor application (only a kill was
    observed).
 6. Display modules in standalone mode (experiment 0021): why a firmware
-   or brightness read there delays the feature writes that follow; why a
-   brightness level sent right after entering software mode can be lost;
-   whether a repeated software mode command disturbs a display that
-   already shows pictures. The behaviour was found on Linux and not
-   repeated on Windows. The 5 Faders have not been tried on Linux.
+   or brightness read there delays the feature writes that follow, and
+   why a brightness level sent right after entering software mode can be
+   lost. The behaviour was found on Linux and not repeated on Windows. The
+   5 Faders have not been tried on Linux.
 7. The declared minimum Rust version (1.88) follows from the language
    features used; it has not been built with exactly that toolchain.
 8. Feature reports whose bytes are known but not understood (experiment

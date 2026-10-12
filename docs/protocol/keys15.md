@@ -71,7 +71,8 @@ In standalone mode the keys play a built-in animation and send no input
 reports at all; key presses only arrive in software mode. The module starts
 in standalone mode after every power-up, so the host has to send `03 3a 01`
 after each connect. Switching to software mode blanks the display until
-images are uploaded.
+images are uploaded; sending `03 3a 01` again later leaves the images in
+place (experiment 0021).
 
 The vendor application sends `03 3a 00` right after opening the module and
 `03 3a 01` about five seconds later, immediately before the first image

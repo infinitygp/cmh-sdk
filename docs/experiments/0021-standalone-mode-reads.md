@@ -102,12 +102,11 @@ then stayed ahead of whatever it sent next on the control endpoint.
 ## Conclusions
 
 - In standalone mode the 15 LCD Keys answer the firmware and backlight
-  reads with an empty report: CONFIRMED. The Dial Display shows the same
-  symptom after power-up; it cannot be sent back to standalone mode to
-  repeat the test.
+  reads with an empty report: CONFIRMED. The Dial Display does the same
+  after power-up; it cannot be sent back to standalone mode by a command.
 - Such a read makes the module carry out each later feature write only
   when the next one arrives, and drop it when a read comes first:
-  CONFIRMED on the keys, and it fits both episodes on the dial.
+  CONFIRMED on the keys, and it fits every episode on the dial.
 - Two software mode writes in a row bring the module into software mode
   from that state, and a firmware read after them ends it: CONFIRMED on
   the keys.
@@ -141,18 +140,60 @@ then stayed ahead of whatever it sent next on the control endpoint.
 - `cmh info` leaves the two reads out on display modules unless
   `--software-mode` is given; `cmh brightness` enables software mode first.
 
-Checked on the keys with the new `cmh`:
+## Check of the changed SDK
+
+On the keys with the new `cmh`:
 
 | Start | Command | Read back | Runs |
 |---|---|---|---|
-| `F`, then two `R` of the previous commit | `cmh brightness n` | n | 5 of 5 |
+| `F`, then one or two `R` of the previous commit | `cmh brightness n` | n | 9 of 9 |
 | `F`, 1 s | `cmh brightness n` | n | 5 of 5 |
+
+After a power-up, with the `events` example running (a `Deck` with its
+defaults) and nothing else: the owner unplugged the base for five seconds.
+On the bus, as soon as each display module was opened again:
+
+```text
+21 09 0303 0000 0020   03 3a 01        keys
+21 09 0303 0000 0020   03 3a 01
+a1 01 0338 0000 0020   -> 38 0f 29 63 1c 5d "02.00.01.00"     1 ms later
+21 09 0303 0000 0020   03 49 01        dial
+21 09 0303 0000 0020   03 49 01
+a1 01 0348 0000 0020   -> 48 0f 26 a0 d8 0a "01.00.04.00"     1 ms later
+```
+
+- The owner saw the animation disappear and both screens go black.
+- `cmh info --software-mode` gave the five firmware versions of 0020 and
+  display brightness 100 on the keys and the dial.
+- `cmh image` for key 0 and the dial: the owner saw "LINUX 0020" on both.
+- The example printed the key press, the dial detent and the dial press
+  the owner then made (and a detent of the left knob).
+- `cmh brightness 5` on both, which sends software mode on again first:
+  the owner saw both pictures still there and clearly dimmer; both read
+  back 5.
+
+The dial from the state of 0020: the owner lifted it off the base and put
+it back. Three seconds after it arrived, the `cmh` of the previous commit
+read it twice (firmware and backlight empty) and sent software mode on
+once, after which its reads were still empty. The new `cmh image` and
+`cmh brightness 60` followed; the firmware read then gave `01.00.04.00`,
+the backlight 60, and the owner saw "LINUX 0020" on the dial.
+
+Conclusions:
+
+- A `Deck` brings both display modules into software mode after a
+  power-up without any other step, and their input and pictures work:
+  CONFIRMED on Linux.
+- The new enabling sequence recovers a dial that an empty read had put
+  into the delaying state, where a single software mode write does
+  nothing: CONFIRMED (once).
+- Sending software mode on to a module that shows pictures leaves them in
+  place: CONFIRMED on both modules (once).
+- The backlight level changes what is seen, not only what is read back:
+  CONFIRMED on both modules.
 
 ## Not covered
 
-- The Dial Display with the new SDK from standalone mode, and both modules
-  right after a power-up.
-- Whether sending software mode on to a module that already shows pictures
-  changes what it shows.
 - Windows.
 - Why the firmware behaves this way.
+- The 5 Faders on Linux.
