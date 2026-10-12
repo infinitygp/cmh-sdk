@@ -79,9 +79,8 @@ they never receive a single output or feature write from the vendor
 application (experiment 0003) and report input with no vendor software
 running (experiment 0005). CONFIRMED.
 
-The 15 LCD Keys only report input in software mode (experiment 0017), which
-has to be enabled after every power-up. Whether the same holds for the Dial
-Display is UNKNOWN.
+The 15 LCD Keys and the Dial Display only report input in software mode
+(experiment 0017), which has to be enabled after every power-up.
 
 Nothing a host sets is remembered across a power cycle unless the vendor
 application's persist flag is used: software mode, display brightness, LED

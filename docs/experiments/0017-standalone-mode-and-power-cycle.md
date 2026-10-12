@@ -66,8 +66,22 @@ After the power cycle:
   one second earlier). The deck then delivers the placement in a separate
   `Relocated` event; seen working. CONFIRMED.
 
-## Open questions
+## Follow-up in the same state
 
-- Does the Dial Display send input while in standalone mode?
-- What the displays show right after software mode is enabled and before
-  the first image arrives.
+After the power cycle the dial was still in standalone mode (the SDK cannot
+put it there itself), and the keys were switched to software mode through
+the SDK without sending any image.
+
+- Dial, standalone: turned one detent and pressed. No input report arrived,
+  while the base heartbeat kept being received by the same monitor.
+- Keys, software mode without images: a black screen.
+
+Conclusions:
+
+- The Dial Display, like the keys, sends no input in standalone mode.
+  CONFIRMED (one attempt).
+- Enabling software mode clears the key display to black; whatever should
+  be visible has to be uploaded afterwards. CONFIRMED.
+
+Afterwards the vendor application was started again and restored its icons,
+the clock face and its lighting.

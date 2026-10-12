@@ -63,8 +63,8 @@ The device info payload has the layout described in
 
 Sent by the vendor application right after opening the module and again
 before it starts drawing. `03 49 00` has never been observed, so the SDK
-refuses to send it. After power-up the dial plays a built-in animation
-until software mode is enabled (experiment 0017).
+refuses to send it. After power-up the dial plays a built-in animation and
+sends no input reports until software mode is enabled (experiment 0017).
 
 ## Feature write: display brightness
 

@@ -64,21 +64,22 @@ being seated (experiment 0011).
 ## Open questions
 
 1. Base orientation values other than flat and upright on the short side.
-2. Does the Dial Display report input while in standalone mode (the keys
-   do not, experiment 0017)?
-3. Two bases at once: the mount path logic handles it in tests only.
-4. What the displays show between enabling software mode and the first
-   image.
-5. Position on the base: purpose of the 2 x 6 pin block; whether other
-   base units are wired the same as the one examined
+2. Two bases at once, and two modules of the same model: handled in tests
+   with scripted devices only; no second unit was available.
+3. Position on the base: purpose of the 2 x 6 pin block; whether other base
+   units are wired the same as the one examined
    ([protocol/placement.md](protocol/placement.md)).
-6. JPEG tolerance of the display modules: chroma subsampling, progressive
+4. JPEG tolerance of the display modules: chroma subsampling, progressive
    mode, maximum size. The SDK accepts only what was seen working.
-7. Behaviour on a clean exit of the vendor application.
-8. Two modules of the same model at once (logic is unit-tested, no second
-   unit available).
-9. Linux: mount path on a natively installed Linux (USB/IP hides the
+5. Behaviour on a clean exit of the vendor application (only a kill was
+   observed).
+6. Linux: mount path on a natively installed Linux (USB/IP hides the
    topology); Base, Rollers, Dial and Faders have not been tried there;
    see [linux-udev.md](linux-udev.md).
-10. The declared minimum Rust version (1.88) follows from the language
-    features used; it has not been built with exactly that toolchain.
+7. The declared minimum Rust version (1.88) follows from the language
+   features used; it has not been built with exactly that toolchain.
+8. Feature reports the modules declare but the vendor application never
+   reads (probably LED settings and serial read-back), and the commands
+   listed in the
+   [protocol reference](protocol/README.md#commands-that-must-never-be-sent)
+   as destructive: deliberately not touched.
