@@ -5,10 +5,10 @@ it is connected through, and the base wires every contact pad to a fixed
 port of its internal hub tree.
 
 Confidence: CONFIRMED for the pad table (every pad was measured, experiments
-0011, 0013, 0014) and for the placements listed in the experiments. The
-geometric rule that turns a pad into covered cells is CONFIRMED for the
-3 Knobs and the 2 Rollers in many places, and for one placement each of the
-Dial Display, the 15 LCD Keys and the 5 Faders.
+0011, 0013, 0014). The geometric rule that turns a pad into covered cells is
+CONFIRMED for every module type: in many places for the 3 Knobs and the
+2 Rollers, and in two places each, one of them predicted beforehand, for the
+Dial Display, the 15 LCD Keys and the 5 Faders (experiment 0015).
 
 ## Mount path
 

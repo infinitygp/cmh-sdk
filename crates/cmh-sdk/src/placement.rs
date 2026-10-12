@@ -209,7 +209,7 @@ mod tests {
     }
 
     /// Every placement that was physically made and logged
-    /// (docs/experiments/0005, 0011, 0013, 0014).
+    /// (docs/experiments/0005, 0011, 0013, 0014, 0015).
     #[test]
     fn reproduces_every_measured_placement() {
         let measured: &[(ModuleKind, &[u8], Option<Placement>)] = &[
@@ -246,6 +246,10 @@ mod tests {
             (Knobs3, &[4, 1], at(2, 3, 2, 2, Deg90)),
             (Knobs3, &[1, 1, 2], at(4, 3, 2, 2, Deg0)),
             (Knobs3, &[2, 4], at(4, 3, 2, 2, Deg90)),
+            // The other modules away from their usual place.
+            (DialDisplay, &[1, 2, 3], at(1, 1, 2, 2, Deg90)),
+            (Faders5, &[1, 1, 1], at(1, 1, 4, 2, Deg0)),
+            (Keys15, &[1, 3, 2], at(3, 1, 4, 3, Deg0)),
             // Rollers.
             (Rollers2, &[1, 3, 3], at(3, 4, 4, 1, Deg0)),
             (Rollers2, &[3, 3], at(1, 1, 4, 1, Deg0)),
