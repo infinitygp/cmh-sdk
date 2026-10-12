@@ -14,6 +14,8 @@
    back to 100, `cmh info`.
 4. With `cmh monitor --raw` running, the owner moved the red fader to one
    end and back, then the white one.
+5. With the same monitor still running, the owner lifted the module off
+   the base and put it back.
 
 ## Observations
 
@@ -42,10 +44,26 @@
   01 2a 07 00 02 05 64 64 29 37 37      AnalogChanged { index: 4, value: 55 }
   ```
 
+- Lifting and reseating, as logged by the monitor:
+
+  ```text
+  #   282.122 left    5 Faders
+  #   293.277 arrived 5 Faders     mount_path=1.4.1 placement: columns 5-6 rows 1-4 turned 270
+  #   293.277 5 Faders     AnalogChanged { index: 0, value: 100 }
+  #   293.277 5 Faders     AnalogChanged { index: 1, value: 100 }
+  #   293.277 5 Faders     AnalogChanged { index: 2, value: 41 }
+  #   293.277 5 Faders     AnalogChanged { index: 3, value: 55 }
+  #   293.277 5 Faders     AnalogChanged { index: 4, value: 100 }
+  ```
+
+  `cmh info` afterwards gave the same positions and LED brightness
+  `[100, 100, 100, 100, 100]`.
+
 ## Conclusions
 
-- Enumeration, firmware and position reads, input and LED colours of the
-  5 Faders through hidraw: CONFIRMED on Linux.
+- Enumeration, firmware and position reads, input, LED colours and
+  hot-plug of the 5 Faders through hidraw: CONFIRMED on Linux. A module
+  that returns announces its fader positions again.
 - LED brightness per zone can be read back from `0x32` on the 5 Faders as
   on the base and the knobs: CONFIRMED.
 - LED zone index equals fader index: CONFIRMED again (the red fader is
@@ -56,7 +74,3 @@
   left and 100 at the top; here index 0 is at the bottom and 100 on the
   left). CONFIRMED. It is the third place checked for the 5 Faders and
   the first with a module of that contact type on a right-side pad.
-
-## Not covered
-
-Plugging the 5 Faders in and out under a running monitor on Linux.
