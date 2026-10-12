@@ -80,9 +80,10 @@ Rust 1.88 or newer. On Linux the `hidapi` backend needs a C compiler,
 `pkg-config` and the libudev headers; access to the devices needs a udev
 rule, see [docs/linux-udev.md](docs/linux-udev.md).
 
-Verified on Windows 11. On Linux the 3 Knobs and the 15 LCD Keys have been
-exercised through WSL2; mount paths have not been read on a natively
-installed Linux yet.
+Verified on Windows 11. On a natively installed Linux every module except
+the 5 Faders has been exercised and mount paths match Windows; the 15 LCD
+Keys and the Dial Display did not respond for a while after power-up there,
+see [docs/linux-udev.md](docs/linux-udev.md#display-modules-after-power-up).
 
 The vendor application and this SDK can read the same modules side by side,
 but the application re-sends its own LED settings every minute and redraws

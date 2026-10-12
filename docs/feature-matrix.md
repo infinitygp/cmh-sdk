@@ -9,8 +9,13 @@ Legend:
 Last update: 2026-10-12. Every "done" below was verified on Windows 11.
 On Linux (WSL2 through usbipd-win, experiment 0012) the 3 Knobs and the
 15 LCD Keys were verified for enumeration, feature reads, input, LEDs,
-images, brightness and hot-plug; the other modules and the mount path were
-not. Firmware: Base
+images, brightness and hot-plug. On a natively installed Linux (experiment
+0020) enumeration, mount path, placement, firmware, input and hot-plug
+were verified for every module except the 5 Faders, together with LEDs on
+the Base and software mode, image upload and display brightness on the
+keys and the dial. There the keys and the dial did not respond to anything
+but the device info read for a while after power-up (open question 6); the
+rows below describe them once they respond. Firmware: Base
 `02.00.04.00`, Keys `02.00.01.00`, Knobs `01.00.05.00`, Rollers
 `01.00.03.01`, Dial `01.00.04.00`, Faders `01.00.05.00`.
 
@@ -76,9 +81,13 @@ being seated (experiment 0011).
    dial (experiment 0019). The SDK accepts only what was seen working.
 5. Behaviour on a clean exit of the vendor application (only a kill was
    observed).
-6. Linux: mount path on a natively installed Linux (USB/IP hides the
-   topology); Base, Rollers, Dial and Faders have not been tried there;
-   see [linux-udev.md](linux-udev.md).
+6. Linux: after power-up the 15 LCD Keys and the Dial Display returned
+   empty firmware and brightness reads and ignored software mode, images
+   and brightness, for three minutes in one case and for as long as it was
+   watched (17 minutes) in another (experiment 0020). Cause, what ends the
+   state and whether Windows shows it are unknown; see
+   [linux-udev.md](linux-udev.md#display-modules-after-power-up). The
+   5 Faders have not been tried on Linux.
 7. The declared minimum Rust version (1.88) follows from the language
    features used; it has not been built with exactly that toolchain.
 8. Feature reports whose bytes are known but not understood (experiment

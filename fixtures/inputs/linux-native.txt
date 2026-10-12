@@ -1,0 +1,13 @@
+# Input recorded on natively installed Linux (hidraw): left knob turned
+# clockwise (two reports); left roller one detent up; dial one detent
+# clockwise; dial pressed; top-left key pressed
+# (docs/experiments/0020-native-linux.md).
+# <seconds> <product id> <direction> <hex bytes, zero padding trimmed>
+   90.460 0202 in 01 2a 05 00 00 03 01 ff ff
+   90.512 0202 in 01 2a 05 00 00 03 01 ff ff
+  337.814 0204 in 01 2a 04 00 01 02 ff
+  361.009 0206 in 01 44 03 00 03 01
+  362.084 0206 in 01 44 03 00 04 01 01
+  362.236 0206 in 01 44 03 00 04 01
+  365.169 01fe in 01 34 11 00 02 0f 01
+  365.309 01fe in 01 34 11 00 02 0f

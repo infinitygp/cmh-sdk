@@ -78,6 +78,6 @@ SDK: `placement::placement(kind, mount_path)`, `Manager::placement`.
   assumption.
 - The base can also be used standing on its short side ("VERTICAL" marking);
   the cells are then the same, only the view is turned.
-- Mount paths need the real USB topology. Windows provides it; Linux does
-  through sysfs but that has not been run on a natively installed system,
-  and USB/IP (WSL) hides it.
+- Mount paths need the real USB topology. Windows provides it and so does
+  Linux through sysfs, with the same values (experiment 0020); USB/IP (WSL)
+  hides it.
