@@ -25,6 +25,19 @@ tools\capture\capture.ps1 stop               # 3. stop, prints file and packet c
 
 Result: `captures\<yyyyMMdd-HHmmss>-<name>.pcapng`.
 
+Turn the capture into reviewable text (one HID report per line, the format
+read by `cmh replay` and by the unit tests):
+
+```powershell
+tools\capture\export-fixture.ps1 captures\<file>.pcapng                       # everything
+tools\capture\export-fixture.ps1 captures\<file>.pcapng -Directions get,set   # feature traffic only
+tools\capture\export-fixture.ps1 captures\<file>.pcapng -ProductId 0202 -From 4.4 -To 4.5
+```
+
+Compare two experiments with any text diff of the exported files. Input
+reports can also be recorded without USBPcap, straight through hidapi:
+`cmh monitor --raw > session.txt`.
+
 For hot-plug experiments add `-AllDevices`: re-enumerated modules get new USB
 addresses, so the source-side address filter cannot be used.
 
