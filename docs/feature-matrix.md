@@ -37,6 +37,16 @@ Hot-plug was verified by exchanging modules on a powered base (experiments
 0005, 0009), including recovery from a contact bounce while a module was
 being seated (experiment 0011).
 
+## Library surface
+
+| Part | Status |
+|---|---|
+| `Deck`: discovery, hot-plug, one event stream, commands by module ID | done on hardware (Windows); logic covered by tests with a scripted backend |
+| `Manager` / `Module`: listing and single-module access | done |
+| `placement`: cells and rotation | done |
+| `picture` (cargo feature `image`): PNG / JPEG / pixels to the displays' JPEG | done on the keys; conversion output is checked against the upload rules in tests |
+| Closed command set | enforced by the API and by a test listing every report that can be emitted |
+
 ## Tools
 
 | Tool | Purpose |
@@ -46,7 +56,7 @@ being seated (experiment 0011).
 | `cmh monitor [--raw] [--heartbeat]` | live typed events, optional fixture-format hex, follows hot-plug |
 | `cmh replay <fixture>` | decode recorded reports without hardware |
 | `cmh software-mode on\|off` | software mode of a display module |
-| `cmh image [--key N] <file.jpg>` | show a JPEG on a key or on the dial |
+| `cmh image [--key N] <file>` | show a PNG or JPEG on a key or on the dial |
 | `cmh led [--index N] [--mode M] [--color RRGGBB] [--brightness N]` | LED effect, colour, brightness |
 | `cmh brightness <0..100>` | backlight of the keys or the dial display |
 | `tools/capture/*.ps1` | USBPcap capture daemon, client and fixture export |
@@ -70,5 +80,5 @@ being seated (experiment 0011).
 9. Linux: mount path on a natively installed Linux (USB/IP hides the
    topology); Base, Rollers, Dial and Faders have not been tried there;
    see [linux-udev.md](linux-udev.md).
-10. Threading model for consumers that read input and draw images at the
-    same time (currently: one owner thread with short read timeouts).
+10. The declared minimum Rust version (1.88) follows from the language
+    features used; it has not been built with exactly that toolchain.
