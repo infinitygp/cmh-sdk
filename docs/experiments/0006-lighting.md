@@ -66,13 +66,12 @@ sending anything.
   CONFIRMED on the wire for the vendor application and the SDK.
 - Effect codes 0, 1, 2, 3, 5, 6, 7, 8, 9 and their names: CONFIRMED against
   the application's menu.
-- Zones are addressed individually: CONFIRMED on the wire; whether the
-  module really shows different colours per zone awaits a photo.
+- Zones are addressed individually: CONFIRMED on the wire and on the
+  device (experiment 0008).
 - Persist flag: LIKELY; never sent by the SDK.
 
 ## Open questions
 
-- Visual confirmation of the SDK run (per-zone colours, base colour).
 - LED control of the 3 Knobs (module code unobserved).
 - Key display brightness: no UI control found.
 - Whether settings without the persist flag survive a power cycle.

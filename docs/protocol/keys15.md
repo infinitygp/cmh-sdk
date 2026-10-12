@@ -107,5 +107,7 @@ baseline 4:4:4 JPEG of exactly 72 x 72 and at most 16 KiB.
 
 ## Not investigated
 
-Backlight brightness, full-screen images, feature reports `0x37` `0x39`
-`0x3a` `0x3c` `0x3d` `0x3e`, other output commands. UNKNOWN.
+Backlight brightness (in the vendor application it is an action bound to a
+control, not a setting; not captured yet), full-screen images, feature
+reports `0x37` `0x39` `0x3a` `0x3c` `0x3d` `0x3e`, other output commands.
+UNKNOWN.

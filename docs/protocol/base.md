@@ -37,7 +37,7 @@ The SDK decodes it as `InputMessage::Heartbeat` and emits no event.
 |---|---|
 | Direction | host to device, interrupt OUT `0x02`, 64 bytes |
 | Reply | none |
-| Confidence | CONFIRMED on the wire for the vendor application and the SDK (experiment 0006); visual result of the SDK run pending |
+| Confidence | CONFIRMED on the wire (experiment 0006) and on the device (experiment 0008) |
 
 | Report | Meaning |
 |---|---|

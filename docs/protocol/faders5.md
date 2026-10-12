@@ -59,10 +59,10 @@ only later movement produces events.
 
 ## Index order and direction
 
-LIKELY, from one photo with the module mounted rotated by 90 degrees
-(faders horizontal, stacked vertically): index 0 was the topmost fader and
-larger values were further to the right. To be pinned down with a dedicated
-single-fader test.
+CONFIRMED (experiment 0008): hold the module so that the faders are upright
+and their LED strips start at the bottom. Index 0 is then the leftmost
+fader, position 0 is at the bottom and 100 at the top. Each LED strip
+lights from the 0 end up to the knob.
 
 ## Output: LEDs
 
@@ -70,7 +70,7 @@ single-fader test.
 |---|---|
 | Direction | host to device, interrupt OUT `0x02`, 64 bytes |
 | Reply | none |
-| Confidence | CONFIRMED on the wire for the vendor application and the SDK (experiment 0006); visual result of the SDK run pending |
+| Confidence | CONFIRMED on the wire (experiment 0006) and on the device: five zones showing five different colours (experiment 0008) |
 
 | Report | Meaning |
 |---|---|
@@ -78,8 +78,9 @@ single-fader test.
 | `02 2d 01 <zone> <r> <g> <b> <persist>` | colour |
 | `02 2e 01 <zone> <level>` | brightness, 0..100 |
 
-One zone per fader, `<zone>` = `00`..`04`. The vendor application always
-sets all five to the same values; the commands themselves are per zone.
+One zone per fader, `<zone>` = `00`..`04`, equal to the fader index. The
+vendor application always sets all five to the same values, but zones can
+be set independently.
 
 Effect codes: `00` Off, `01` Static, `02` Breathing, `03` Strobe, `05`
 Cycling, `06` Random, `07` Wave, `08` Water, `09` Rainbow. The vendor

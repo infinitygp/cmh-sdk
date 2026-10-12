@@ -9,7 +9,11 @@ use crate::protocol::input::{InputMessage, STEP_NEGATIVE, STEP_POSITIVE};
 /// Index order as verified on hardware:
 /// - 15 LCD Keys: row by row, starting at the key furthest from the logo
 ///   bar on the left.
-/// - other modules: see the per-module notes in `docs/protocol`.
+/// - 5 Faders: left to right with the faders upright and position 0 at
+///   the bottom.
+/// - 2 Rollers: index 0 is the right roller when the module sits along the
+///   edge nearest the operator.
+/// - 3 Knobs: not pinned down yet; see `docs/protocol`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum InputEvent {
@@ -19,7 +23,8 @@ pub enum InputEvent {
     ButtonUp {
         index: u8,
     },
-    /// One detent of rotation. On the knobs `+1` is clockwise.
+    /// One detent of rotation. On the knobs `+1` is clockwise; on the
+    /// rollers `+1` is towards the operator (down).
     EncoderDelta {
         index: u8,
         delta: i8,

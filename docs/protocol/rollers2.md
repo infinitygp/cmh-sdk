@@ -11,23 +11,23 @@
 |---|---|
 | Report | ID `0x01`, tag `0x2a`, payload `01 02 r0 r1` |
 | Trigger | one report per detent |
-| Values | `00` / `01` one detent in either direction, `ff` roller did not move |
-| Confidence | CONFIRMED for the layout (experiment 0002) |
+| Values | `00` one detent away from the operator (up), `01` one detent towards the operator (down), `ff` roller did not move |
+| Confidence | CONFIRMED (experiments 0002, 0008) |
 
 ```text
-01 2a 04 00 01 02 ff 00      roller 1, one detent, direction code 00
-01 2a 04 00 01 02 01 ff      roller 0, one detent, direction code 01
+01 2a 04 00 01 02 ff 00      roller 1, one detent up
+01 2a 04 00 01 02 01 ff      roller 0, one detent down
 ```
 
 SDK: `InputEvent::EncoderDelta { index, delta }` with `-1` for `00` and `+1`
 for `01`.
 
-Open points (UNKNOWN):
+Orientation (CONFIRMED, experiment 0008): with the module mounted along
+the edge of the base nearest the operator, index 0 is the right roller and
+index 1 the left one. "Up" and "left" swap if the module is mounted the
+other way round; the firmware does not know its orientation.
 
-- Which physical direction (towards / away from the user) produces `00`.
-- Which physical roller is index 0.
-- Whether the rollers can be pressed. No button report was seen in
-  experiment 0002, and the report descriptor offers no hint.
+The rollers have no push function.
 
 ## Feature reads
 
