@@ -1,7 +1,8 @@
 # Linux access
 
-Status: **untested**. The SDK has only been run on Windows so far; this page
-records what is expected to be needed on Linux.
+Status: the workspace builds and passes its tests on Arch Linux (WSL2,
+experiment 0010), but no module has been accessed from Linux yet. The rest
+of this page records what is expected to be needed.
 
 ## Build dependencies
 

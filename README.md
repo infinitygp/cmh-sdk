@@ -3,6 +3,8 @@
 Independent, cross-platform Rust SDK for the Cooler Master MasterHUB modular
 control deck (Windows and Linux, HID via `hidapi`). Work in progress: the
 protocol is being derived from controlled USB observations of real hardware.
+Verified on Windows; on Linux it builds and its tests pass, device access is
+untested.
 
 - `crates/cmh-sdk`: library (transport, protocol, devices, input, module, manager)
 - `crates/cmh-cli`: `cmh` diagnostic tool
