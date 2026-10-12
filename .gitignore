@@ -1,0 +1,7 @@
+/target/
+
+# Raw USB captures may contain traffic from unrelated devices (keystrokes,
+# storage, ...). Only curated, per-module text fixtures are committed.
+*.pcap
+*.pcapng
+/captures/

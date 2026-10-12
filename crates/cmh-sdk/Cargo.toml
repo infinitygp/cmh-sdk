@@ -1,0 +1,11 @@
+[package]
+name = "cmh-sdk"
+description = "Independent cross-platform SDK for the Cooler Master MasterHUB modular control deck"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+hidapi.workspace = true
+thiserror.workspace = true
