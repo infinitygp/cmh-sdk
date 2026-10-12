@@ -65,6 +65,24 @@ upload. What the module does differently in mode `00` has not been observed.
 
 SDK: `Module::set_software_mode`.
 
+## Feature write: display brightness
+
+| | |
+|---|---|
+| Report | `03 34 <level>`, 32 bytes, `SET_REPORT` feature |
+| Values | percent; the vendor application was seen sending 40..55 in steps of 5 |
+| Reply | none |
+| Confidence | CONFIRMED on the wire for the vendor application and the SDK (experiment 0009); full range 0..100 LIKELY; visual result pending |
+
+```text
+03 34 32      brightness 50
+```
+
+In the vendor application brightness is not a setting but an action bound
+to a control; one detent changes both display modules by 5.
+
+SDK: `Module::set_display_brightness`.
+
 ## Output: key image
 
 | | |
@@ -107,7 +125,6 @@ baseline 4:4:4 JPEG of exactly 72 x 72 and at most 16 KiB.
 
 ## Not investigated
 
-Backlight brightness (in the vendor application it is an action bound to a
-control, not a setting; not captured yet), full-screen images, feature
-reports `0x37` `0x39` `0x3a` `0x3c` `0x3d` `0x3e`, other output commands.
-UNKNOWN.
+Full-screen images, feature reports `0x37` `0x39` `0x3a` `0x3c` `0x3d`
+`0x3e` (one of them probably reads the brightness back), other output
+commands. UNKNOWN.

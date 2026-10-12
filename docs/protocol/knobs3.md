@@ -40,9 +40,9 @@ SDK: `InputEvent::ButtonDown { index }` / `ButtonUp { index }`.
 
 ## Index order
 
-The mapping of indexes 0..2 to the three physical knobs has not been pinned
-down yet (the knobs form a triangle). UNKNOWN, open question in experiment
-0002.
+The knobs form a triangle. With its single knob pointing away from the
+operator, index 0 is the left knob, index 1 the right knob and index 2 the
+single knob. CONFIRMED (experiment 0009).
 
 ## Feature reads
 
@@ -51,9 +51,25 @@ down yet (the knobs form a triangle). UNKNOWN, open question in experiment
 | `0x2e` | firmware version | `2e 0f a7 df 5b 3f "01.00.05.00"` | CONFIRMED |
 | `0x31` | device info | `31 14` + 20 zero bytes | CONFIRMED |
 
+## Output: LEDs
+
+The LED rings use the commands described for the
+[base](base.md#output-leds) with module code `02` and one zone per knob,
+`<zone>` = `00`..`02`.
+
+```text
+02 2d 02 00 74 3a df 00      zone 0 colour 74 3a df
+02 2c 02 02 01 00            zone 2 static
+02 2e 02 01 32               zone 1 brightness 50
+```
+
+Confidence: CONFIRMED on the wire for the vendor application and the SDK
+(experiment 0009). That zone index equals knob index is LIKELY until seen
+on the device.
+
+SDK: `Module::set_led_mode`, `set_led_color`, `set_led_brightness`.
+
 ## Not investigated
 
-Output reports and the LED rings, feature reports `0x2d` `0x2f` `0x30`
-`0x32` `0x34` `0x36`. UNKNOWN. The LED commands of the base and the faders
-(`0x2c` `0x2d` `0x2e`) presumably apply with another module code, but that
-has not been observed and the SDK does not send them to the knobs.
+Feature reports `0x2d` `0x2f` `0x30` `0x32` `0x34` `0x36`, other output
+commands. UNKNOWN.

@@ -3,6 +3,8 @@
 Legend:
 
 - **done**: implemented in the SDK and verified on hardware
+- **done (wire)**: implemented and verified on the USB wire; the visible
+  result still needs a person to confirm
 - **open**: not investigated or not implemented
 - **n/a**: does not apply to this module
 
@@ -23,8 +25,8 @@ Last update: 2026-10-12. Platform: Windows 11 only. Firmware: Base
 | Heartbeat decoding | done | n/a | n/a | n/a | n/a | n/a |
 | Software mode switch | n/a | done | n/a | n/a | done (on only) | n/a |
 | Image upload | n/a | done | n/a | n/a | done | n/a |
-| Display brightness | n/a | open | n/a | n/a | open | n/a |
-| LED effect / colour / brightness | done | n/a | open | n/a | n/a | done |
+| Display brightness | n/a | done (wire) | n/a | n/a | done (wire) | n/a |
+| LED effect / colour / brightness | done | n/a | done (wire) | n/a | n/a | done |
 | Hot-plug (polling, identity by serial) | done | done | done | done | done | done |
 | Physical position on the base | open | open | open | open | open | open |
 
@@ -43,20 +45,18 @@ covered by unit tests only.
 | `cmh software-mode on\|off` | software mode of a display module |
 | `cmh image [--key N] <file.jpg>` | show a JPEG on a key or on the dial |
 | `cmh led [--index N] [--mode M] [--color RRGGBB] [--brightness N]` | LED effect, colour, brightness |
+| `cmh brightness <0..100>` | backlight of the keys or the dial display |
 | `tools/capture/*.ps1` | USBPcap capture daemon, client and fixture export |
 
 ## Open questions
 
-1. Physical meaning of indexes and directions still open: knob order, dial
-   direction (faders and rollers are settled, experiment 0008).
+1. Does LED zone index equal knob index (expected)?
 2. Does the dial display react to touch?
 3. Do the display modules report input when they are not in software mode,
    and what do they show then? What does `03 3a 00` change?
 4. What does the heartbeat status byte mean?
-5. Display brightness of the keys and the dial: in the vendor application
-   it is an action bound to a control (by default a knob), still to be
-   captured. LED rings of the 3 Knobs: module code not observed yet. Do LED
-   settings sent without the persist flag survive a power cycle?
+5. Display brightness outside 40..55, in particular level 0. Do LED and
+   brightness settings survive a power cycle?
 6. Position on the base: the vendor application derives it from the USB
    port path (experiment 0007). Still needed: the path-to-cell table and a
    way to read the port path on Windows and Linux.

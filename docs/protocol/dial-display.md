@@ -11,18 +11,18 @@
 |---|---|
 | Report | ID `0x01`, tag `0x44`, payload `03 01 d` |
 | Trigger | one report per detent |
-| Values | `00` / `01` one detent in either direction |
-| Confidence | CONFIRMED for the layout (experiment 0002) |
+| Values | `00` one detent clockwise, `01` one detent counter-clockwise |
+| Confidence | CONFIRMED (experiments 0002, 0009) |
 
 ```text
-01 44 03 00 03 01 00
-01 44 03 00 03 01 01
+01 44 03 00 03 01 00      clockwise
+01 44 03 00 03 01 01      counter-clockwise
 ```
 
-Which physical direction produces `00` is UNKNOWN (expected: counter
-clockwise, as on the knobs).
+Note the reversal against the 3 Knobs, where `01` is clockwise.
 
-SDK: `InputEvent::EncoderDelta { index: 0, delta }`.
+SDK: `InputEvent::EncoderDelta { index: 0, delta }` with `+1` for clockwise,
+the same sign convention as on the knobs.
 
 ## Input: push
 
@@ -65,6 +65,24 @@ Sent by the vendor application right after opening the module and again
 before it starts drawing. `03 49 00` has never been observed, so the SDK
 refuses to send it.
 
+## Feature write: display brightness
+
+| | |
+|---|---|
+| Report | `03 44 <level>`, 32 bytes, `SET_REPORT` feature |
+| Values | percent; the vendor application was seen sending 40..55 in steps of 5 |
+| Reply | none |
+| Confidence | CONFIRMED on the wire for the vendor application and the SDK (experiment 0009); full range 0..100 LIKELY; visual result pending |
+
+```text
+03 44 32      brightness 50
+```
+
+In the vendor application brightness is not a setting but an action bound
+to a control; one detent changes both display modules by 5.
+
+SDK: `Module::set_display_brightness`.
+
 ## Output: display image
 
 Same chunk format as the [key image](keys15.md#output-key-image) with
@@ -91,5 +109,5 @@ SDK: `Module::set_image(0, jpeg)`.
 
 ## Not investigated
 
-Brightness, feature reports `0x47` `0x49` `0x4a` `0x4c` `0x4d` `0x4e`,
-animations. UNKNOWN.
+Feature reports `0x47` `0x49` `0x4a` `0x4c` `0x4d` `0x4e`, animations.
+UNKNOWN.

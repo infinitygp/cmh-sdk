@@ -62,9 +62,10 @@ Channel 0 carries control events:
 | 1 | 1 | number of controls |
 | 2 | count | one byte per control, in index order |
 
-Rotation events use one step code per encoder: `0x00` one detent in the
-negative direction, `0x01` one detent in the positive direction, `0xff` no
-movement. Button events carry the full state of every button (`0` released,
+Rotation events use one step code per encoder: `0x00` or `0x01` for one
+detent, `0xff` for no movement. Which direction `0x00` stands for depends on
+the module: counter-clockwise on the knobs, clockwise on the dial, away from
+the operator on the rollers. Button events carry the full state of every button (`0` released,
 `1` pressed) and fader events the position of every fader (0..100); a
 report is sent on every change.
 
@@ -104,9 +105,16 @@ possibly a checksum) followed by 11 ASCII characters `NN.NN.NN.NN`.
 2e 0f 12 54 4c 2f 30 32 2e 30 30 2e 30 34 2e 30 30      Base, "02.00.04.00"
 ```
 
-All feature writes use report ID `0x03`: `03 <command> <arguments>`. The
-only write observed is the software mode switch of the display modules, see
-[keys15.md](keys15.md) and [dial-display.md](dial-display.md). The vendor
+All feature writes use report ID `0x03`: `03 <command> <arguments>`.
+Observed on the display modules only:
+
+| Purpose | keys | dial | Status |
+|---|---|---|---|
+| Display brightness, `<level>` in percent | `03 34 <level>` | `03 44 <level>` | CONFIRMED |
+| Software mode | `03 3a <0\|1>` | `03 49 01` | CONFIRMED as sent |
+
+Details are in [keys15.md](keys15.md) and
+[dial-display.md](dial-display.md). The vendor
 application does not clear its buffer, so bytes after the arguments contain
 stale data on the wire; they are not part of the command.
 
@@ -118,12 +126,11 @@ far:
 
 | Command | Modules | Purpose | Details |
 |---|---|---|---|
-| `0x2c` `0x2d` `0x2e` | Base, 5 Faders | LED effect, colour, brightness | [base.md](base.md#output-leds), [faders5.md](faders5.md#output-leds) |
+| `0x2c` `0x2d` `0x2e` | Base, 5 Faders, 3 Knobs | LED effect, colour, brightness | [base.md](base.md#output-leds), [faders5.md](faders5.md#output-leds), [knobs3.md](knobs3.md#output-leds) |
 | `0x36` | 15 LCD Keys | key image | [keys15.md](keys15.md#output-key-image) |
 | `0x45` | Dial Display | display image | [dial-display.md](dial-display.md#output-display-image) |
 
-No output report is acknowledged. UNKNOWN: display brightness, the LED
-rings of the 3 Knobs and every other command.
+No output report is acknowledged. UNKNOWN: every other command.
 
 ## Vendor application behaviour
 
