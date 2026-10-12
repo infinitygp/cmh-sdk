@@ -64,8 +64,42 @@ LIKELY, from one photo with the module mounted rotated by 90 degrees
 larger values were further to the right. To be pinned down with a dedicated
 single-fader test.
 
+## Output: LEDs
+
+| | |
+|---|---|
+| Direction | host to device, interrupt OUT `0x02`, 64 bytes |
+| Reply | none |
+| Confidence | CONFIRMED on the wire for the vendor application and the SDK (experiment 0006); visual result of the SDK run pending |
+
+| Report | Meaning |
+|---|---|
+| `02 2c 01 <zone> <mode> <persist>` | effect |
+| `02 2d 01 <zone> <r> <g> <b> <persist>` | colour |
+| `02 2e 01 <zone> <level>` | brightness, 0..100 |
+
+One zone per fader, `<zone>` = `00`..`04`. The vendor application always
+sets all five to the same values; the commands themselves are per zone.
+
+Effect codes: `00` Off, `01` Static, `02` Breathing, `03` Strobe, `05`
+Cycling, `06` Random, `07` Wave, `08` Water, `09` Rainbow. The vendor
+application offers nothing for `04`.
+
+`<persist>` is `00` for live changes. The vendor application sends the
+colour once more with `01` a few seconds after the user stops adjusting,
+which most likely stores it in the module (LIKELY). The SDK always sends
+`00`.
+
+```text
+02 2d 01 03 ff 00 00 00      fader 3 red
+02 2c 01 03 09 00            fader 3 rainbow
+02 2e 01 03 64               fader 3 brightness 100
+```
+
+SDK: `Module::set_led_mode`, `set_led_color`, `set_led_brightness`.
+
 ## Not investigated
 
-LED colour, mode and brightness (the strips were lit orange by default),
-output reports, feature reports `0x2d` `0x2f` `0x30` `0x32` `0x34` `0x36`.
+Feature reports `0x2d` `0x2f` `0x30` `0x32` `0x34` `0x36` (by their position
+some of them probably read back the LED settings), other output commands.
 UNKNOWN.

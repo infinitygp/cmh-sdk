@@ -113,9 +113,17 @@ stale data on the wire; they are not part of the command.
 ## Output reports (host to device)
 
 Interrupt OUT, report ID `0x02`: 64 bytes on the basic family, 320 bytes on
-the display modules. The only output reports observed are image uploads, see
-[keys15.md](keys15.md). No output report has been seen going to a basic
-module. UNKNOWN: LEDs, brightness and every other command.
+the display modules, laid out as `02 <command> <arguments>`. Observed so
+far:
+
+| Command | Modules | Purpose | Details |
+|---|---|---|---|
+| `0x2c` `0x2d` `0x2e` | Base, 5 Faders | LED effect, colour, brightness | [base.md](base.md#output-leds), [faders5.md](faders5.md#output-leds) |
+| `0x36` | 15 LCD Keys | key image | [keys15.md](keys15.md#output-key-image) |
+| `0x45` | Dial Display | display image | [dial-display.md](dial-display.md#output-display-image) |
+
+No output report is acknowledged. UNKNOWN: display brightness, the LED
+rings of the 3 Knobs and every other command.
 
 ## Vendor application behaviour
 
@@ -127,6 +135,11 @@ Observed with MasterHUB 1.0.0.113 (experiments 0001, 0003):
   software mode to both display modules, uploads all 15 key images, then
   redraws the dial once per second.
 - Reads the fader positions on start and every ~2 s afterwards.
+- Sends LED settings live while the user adjusts them and stores the colour
+  in the module a few seconds later (experiment 0006).
+- Draws the mounted modules at their real positions and orientation, so it
+  has a way to locate them; nothing in the HID traffic seen so far carries
+  that information.
 - When the application is killed nothing is sent; the modules keep their
   last images and the base heartbeat continues unchanged.
 

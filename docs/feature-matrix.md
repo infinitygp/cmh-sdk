@@ -3,6 +3,8 @@
 Legend:
 
 - **done**: implemented in the SDK and verified on hardware
+- **done (wire)**: implemented and verified on the USB wire; the visible
+  result still needs a person to confirm
 - **open**: not investigated or not implemented
 - **n/a**: does not apply to this module
 
@@ -23,8 +25,8 @@ Last update: 2026-10-12. Platform: Windows 11 only. Firmware: Base
 | Heartbeat decoding | done | n/a | n/a | n/a | n/a | n/a |
 | Software mode switch | n/a | done | n/a | n/a | done (on only) | n/a |
 | Image upload | n/a | done | n/a | n/a | done | n/a |
-| Brightness | open | open | open | open | open | open |
-| LEDs / RGB | open | n/a | open | open | n/a | open |
+| Display brightness | n/a | open | n/a | n/a | open | n/a |
+| LED effect / colour / brightness | done (wire) | n/a | open | n/a | n/a | done (wire) |
 | Hot-plug (polling, identity by serial) | done | done | done | done | done | done |
 | Physical position on the base | open | open | open | open | open | open |
 
@@ -42,6 +44,7 @@ covered by unit tests only.
 | `cmh replay <fixture>` | decode recorded reports without hardware |
 | `cmh software-mode on\|off` | software mode of a display module |
 | `cmh image [--key N] <file.jpg>` | show a JPEG on a key or on the dial |
+| `cmh led [--index N] [--mode M] [--color RRGGBB] [--brightness N]` | LED effect, colour, brightness |
 | `tools/capture/*.ps1` | USBPcap capture daemon, client and fixture export |
 
 ## Open questions
@@ -52,8 +55,10 @@ covered by unit tests only.
 3. Do the display modules report input when they are not in software mode,
    and what do they show then? What does `03 3a 00` change?
 4. What does the heartbeat status byte mean?
-5. Brightness and LED control: no traffic observed yet; needs captures of
-   the vendor application while those settings are changed.
+5. Display brightness of the keys and the dial: no control found in the
+   vendor application's UI. LED rings of the 3 Knobs: module code not
+   observed yet. Do LED settings sent without the persist flag survive a
+   power cycle?
 6. Does the hub port path of a module map to a fixed position on the base?
 7. JPEG tolerance of the display modules: chroma subsampling, progressive
    mode, maximum size. The SDK accepts only what was seen working.

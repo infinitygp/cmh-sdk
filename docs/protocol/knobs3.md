@@ -54,4 +54,6 @@ down yet (the knobs form a triangle). UNKNOWN, open question in experiment
 ## Not investigated
 
 Output reports and the LED rings, feature reports `0x2d` `0x2f` `0x30`
-`0x32` `0x34` `0x36`. UNKNOWN.
+`0x32` `0x34` `0x36`. UNKNOWN. The LED commands of the base and the faders
+(`0x2c` `0x2d` `0x2e`) presumably apply with another module code, but that
+has not been observed and the SDK does not send them to the knobs.
