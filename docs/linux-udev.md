@@ -52,6 +52,49 @@ usbipd detach --busid <busid>                  # hand the module back to Windows
 - Devices arrive on a virtual host controller, so `cmh list` shows
   `mount_path=?`.
 
+## Check on natively installed Linux (not yet run)
+
+What is left to verify is the USB topology, and with it mount path and
+placement, plus the modules that were not attached to WSL. With the base in
+its usual layout:
+
+```sh
+cargo build --release
+./target/release/cmh list
+```
+
+Expected: the same `mount_path` and `placement` lines as on Windows. The
+port chain in front of the mount path depends on the PC's own ports and may
+differ.
+
+| Module | `mount_path` | `placement` |
+|---|---|---|
+| Base | `1.4.4` | - |
+| 15 LCD Keys | `2.2` | columns 1-4 rows 1-3 turned 0 |
+| 3 Knobs | `1.3.4` | columns 5-6 rows 3-4 turned 0 |
+| 2 Rollers | `1.1.4` | columns 1-4 rows 4-4 turned 0 |
+| Dial Display | `1.4.3` | columns 5-6 rows 1-2 turned 0 |
+
+```sh
+./target/release/cmh info
+./target/release/cmh monitor --seconds 60
+```
+
+Expected from `info`: the firmware versions read on Windows (Base
+`02.00.04.00`, Keys `02.00.01.00`, Knobs `01.00.05.00`, Rollers
+`01.00.03.01`, Dial `01.00.04.00`). During `monitor`: one roller step, one dial
+step and press, one key press, and lifting a module off the base and
+putting it back should each print their line; the module that was lifted
+should come back with its placement.
+
+```sh
+./target/release/cmh image --module dial some-picture.png
+./target/release/cmh led --module base --mode static --color 00ff00
+```
+
+Expected: the picture on the dial, the base lit green until the next power
+cycle.
+
 ## Known differences from Windows
 
 - hidraw paths (`/dev/hidrawN`) are reused by the next device that appears.
