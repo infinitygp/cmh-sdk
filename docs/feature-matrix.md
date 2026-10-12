@@ -13,7 +13,8 @@ images, brightness and hot-plug. On a natively installed Linux (experiment
 0020) enumeration, mount path, placement, firmware, input and hot-plug
 were verified for every module except the 5 Faders, together with LEDs on
 the Base and software mode, image upload and display brightness on the
-keys and the dial; the 5 Faders followed in experiment 0022. On the keys and the dial the firmware version, the
+keys and the dial; the 5 Faders followed in experiment 0022 and the LEDs
+of the 3 Knobs in experiment 0023. On the keys and the dial the firmware version, the
 display brightness, images and input need software mode (experiment 0021).
 Firmware: Base
 `02.00.04.00`, Keys `02.00.01.00`, Knobs `01.00.05.00`, Rollers
