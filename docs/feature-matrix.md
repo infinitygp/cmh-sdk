@@ -24,7 +24,7 @@ not. Firmware: Base
 | `EncoderDelta` | n/a | n/a | done | done | done | n/a |
 | `AnalogChanged` | n/a | n/a | n/a | n/a | n/a | done |
 | Initial analog positions | n/a | n/a | n/a | n/a | n/a | done |
-| Heartbeat decoding | done | n/a | n/a | n/a | n/a | n/a |
+| Base orientation (flat / upright) | done | n/a | n/a | n/a | n/a | n/a |
 | Software mode switch | n/a | done | n/a | n/a | done (on only) | n/a |
 | Image upload | n/a | done | n/a | n/a | done | n/a |
 | Display brightness | n/a | done | n/a | n/a | done | n/a |
@@ -41,7 +41,7 @@ being seated (experiment 0011).
 
 | Part | Status |
 |---|---|
-| `Deck`: discovery, hot-plug, one event stream, commands by module ID | done on hardware (Windows); logic covered by tests with a scripted backend |
+| `Deck`: discovery, hot-plug, one event stream, commands by module ID | done on hardware (Windows), poll timing measured (experiment 0016); logic covered by tests with a scripted backend |
 | `Manager` / `Module`: listing and single-module access | done |
 | `placement`: cells and rotation | done |
 | `picture` (cargo feature `image`): PNG / JPEG / pixels to the displays' JPEG | done on the keys; conversion output is checked against the upload rules in tests |
@@ -63,10 +63,10 @@ being seated (experiment 0011).
 
 ## Open questions
 
-1. Does the dial display react to touch?
+1. Base orientation values other than flat and upright on the short side.
 2. Do the display modules report input when they are not in software mode,
    and what do they show then? What does `03 3a 00` change?
-3. What does the heartbeat status byte mean?
+3. Two bases at once: the mount path logic handles it in tests only.
 4. Display brightness level 0. Do LED and brightness settings survive a
    power cycle?
 5. Position on the base: purpose of the 2 x 6 pin block; whether other

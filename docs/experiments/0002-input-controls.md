@@ -50,4 +50,5 @@ No roller produced a button report.
 - Physical position of knob indexes 0, 1, 2.
 - Physical roller for index 0 and the direction that yields `00`.
 - Dial direction for `00`.
-- Whether the burst at 222 s came from touching the display.
+- Whether the burst at 222 s came from touching the display. (Answered in
+  experiment 0016: it did not; the display reports no touch.)

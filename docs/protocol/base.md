@@ -4,25 +4,28 @@
 - Family: basic (64 byte output report, feature IDs `0x2d`..`0x36`)
 - Firmware seen: `02.00.04.00`
 
-## Input: heartbeat
+## Input: heartbeat and orientation
 
 | | |
 |---|---|
 | Direction | device to host, interrupt IN `0x81` |
 | Report | ID `0x01`, tag `0x2b` (channel 1), payload length 1 |
 | Trigger | spontaneous, every ~516 ms, with or without the vendor application |
-| Confidence | CONFIRMED (experiments 0001, 0003) |
+| Payload | one byte: `01` base lying flat, `00` base standing upright on its short side |
+| Confidence | CONFIRMED (experiments 0001, 0003, 0016) |
 
 ```text
 01 2b 01 00 01 00 .. 00
-         |  `- payload: status byte, always 01 so far
+         |  `- payload: 01 flat, 00 upright
          `---- length 1
 ```
 
-The meaning of the status byte is UNKNOWN. It stayed `01` while the vendor
-application was running, after it was killed and while it restarted.
+The byte does not depend on the vendor application. Values for other ways
+of placing the base (on a long side, face down) are UNKNOWN. While the base
+is being moved the heartbeat can pause for several seconds.
 
-The SDK decodes it as `InputMessage::Heartbeat` and emits no event.
+SDK: `InputMessage::Heartbeat`; `InputEvent::OrientationChanged { upright }`
+once after connecting and on every change.
 
 ## Feature reads
 

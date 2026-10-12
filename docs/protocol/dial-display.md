@@ -37,8 +37,8 @@ the same sign convention as on the knobs.
 01 44 03 00 04 01 00      released
 ```
 
-No report carrying touch coordinates was seen. Whether the display itself is
-touch sensitive is UNKNOWN.
+Touching or swiping the glass produces no report (experiment 0016): the
+display is not a touch input.
 
 SDK: `InputEvent::ButtonDown { index: 0 }` / `ButtonUp { index: 0 }`.
 

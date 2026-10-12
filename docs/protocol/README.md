@@ -70,8 +70,9 @@ the operator on the rollers. Button events carry the full state of every button 
 `1` pressed) and fader events the position of every fader (0..100); a
 report is sent on every change.
 
-Channel 1 (`0x2b`) is only used by the base heartbeat. Channels 2 to 4 have
-not been observed. UNKNOWN.
+Channel 1 (`0x2b`) is only used by the base heartbeat, which carries the
+orientation of the base ([base.md](base.md)). Channels 2 to 4 have not been
+observed. UNKNOWN.
 
 Modules send input without any initialisation from the host: the basic
 modules never receive a single output or feature write from the vendor
