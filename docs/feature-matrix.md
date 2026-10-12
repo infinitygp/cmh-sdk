@@ -33,6 +33,7 @@ Firmware: Base
 | Base orientation (flat / upright) | done | n/a | n/a | n/a | n/a | n/a |
 | Software mode switch | n/a | done | n/a | n/a | done (on only) | n/a |
 | Image upload | n/a | done | n/a | n/a | done | n/a |
+| Sustained animation, upload rate measured (0025) | n/a | done | n/a | n/a | done | n/a |
 | Display brightness, set and read back | n/a | done | n/a | n/a | done | n/a |
 | LED effect / colour / brightness | done | n/a | done | n/a | n/a | done |
 | LED brightness read back | done | n/a | done | n/a | n/a | done |
@@ -90,8 +91,9 @@ being seated (experiment 0011).
    `Deck` reads the listing again after enabling software mode and
    connects the module under its real serial; `Manager`, and a deck that
    leaves the mode alone, show what the system lists.
-7. The declared minimum Rust version (1.88) follows from the language
-   features used; it has not been built with exactly that toolchain.
+7. The declared minimum Rust version (1.88): the workspace builds and its
+   tests pass with rustc 1.88.0 on Windows; not tried with that toolchain
+   on Linux.
 8. Feature reports whose bytes are known but not understood (experiment
    0018). The commands listed in the
    [protocol reference](protocol/README.md#commands-that-must-never-be-sent)

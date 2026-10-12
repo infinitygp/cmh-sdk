@@ -151,7 +151,10 @@ A stream the module cannot decode does not leave the key as it was: the key
 is redrawn with the image the module decoded last, whichever key that was
 meant for. CONFIRMED (0019).
 
-Uploads of all 15 keys take about 150 ms. Images are re-sent by the vendor
+Uploads of all 15 keys take about 150 ms from the vendor application. The
+module takes several hundred small images per second and keeps reporting
+key presses meanwhile; 30 per second for five minutes looked smooth
+(experiment 0025). Images are re-sent by the vendor
 application on every start, so they are not stored permanently by this
 command. LIKELY.
 

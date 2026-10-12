@@ -113,7 +113,10 @@ command `0x45`.
   and 4:2:0 are displayed too, CONFIRMED (0019). Progressive and greyscale
   JPEGs are not decoded by the 15 LCD Keys and were not tried here.
 - The vendor application redraws the whole display once per second (clock
-  face), about 5 ms per frame on the wire.
+  face), about 5 ms per frame on the wire. The dial takes at most 60 to
+  68 images per second and slows the sender down beyond that; 20 per
+  second for five minutes looked smooth, with input still arriving
+  (experiment 0025).
 
 Confidence: CONFIRMED on the wire (experiments 0001, 0003, 0004) and on
 the display by photo (0005): upright, cropped to the round panel.
