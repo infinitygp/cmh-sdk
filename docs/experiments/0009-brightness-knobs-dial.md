@@ -87,8 +87,28 @@ and the knobs module were refused without sending anything.
 - An I/O error on a pulled module surfaces as `Error::Disconnected`, and
   `cmh monitor` picks up the replacement modules: CONFIRMED on Windows.
 
+## What the operator saw
+
+- The key display was clearly dimmer than the dial display after the SDK
+  run (photo). Both were set back to 55 afterwards.
+- The knob rings changed to the SDK colours and returned to the
+  application's purple a little later.
+
+The capture explains the second point: while it runs, the vendor
+application re-sends effect, colour and brightness from its profile every
+60 s (base LED reports at 8.8 s, 68.8 s, 128.8 s, 188.8 s).
+
+Updated conclusions:
+
+- `set_display_brightness`: CONFIRMED on the device for the keys (level 15
+  against 100 on the dial).
+- LED control of the 3 Knobs through the SDK: CONFIRMED on the device.
+  Which zone lights which knob was not noted; zone index = knob index stays
+  LIKELY.
+- The vendor application and another LED writer cannot coexist: the
+  application wins within a minute.
+
 ## Open questions
 
-- Visual confirmation of the SDK run: which knob shows which colour, and is
-  the key display visibly dimmer than the dial.
+- Which LED zone belongs to which knob.
 - Does brightness 0 switch a display off completely?

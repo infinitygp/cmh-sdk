@@ -72,7 +72,7 @@ SDK: `Module::set_software_mode`.
 | Report | `03 34 <level>`, 32 bytes, `SET_REPORT` feature |
 | Values | percent; the vendor application was seen sending 40..55 in steps of 5 |
 | Reply | none |
-| Confidence | CONFIRMED on the wire for the vendor application and the SDK (experiment 0009); full range 0..100 LIKELY; visual result pending |
+| Confidence | CONFIRMED on the wire and on the device (experiment 0009: level 15 is clearly dimmer); the range below 15 is LIKELY |
 
 ```text
 03 34 32      brightness 50

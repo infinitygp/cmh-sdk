@@ -63,9 +63,9 @@ The LED rings use the commands described for the
 02 2e 02 01 32               zone 1 brightness 50
 ```
 
-Confidence: CONFIRMED on the wire for the vendor application and the SDK
-(experiment 0009). That zone index equals knob index is LIKELY until seen
-on the device.
+Confidence: CONFIRMED on the wire and on the device (experiment 0009). That
+zone index equals knob index is LIKELY; the operator saw the colours change
+but the assignment was not noted.
 
 SDK: `Module::set_led_mode`, `set_led_color`, `set_led_brightness`.
 

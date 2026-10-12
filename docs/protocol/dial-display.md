@@ -72,7 +72,7 @@ refuses to send it.
 | Report | `03 44 <level>`, 32 bytes, `SET_REPORT` feature |
 | Values | percent; the vendor application was seen sending 40..55 in steps of 5 |
 | Reply | none |
-| Confidence | CONFIRMED on the wire for the vendor application and the SDK (experiment 0009); full range 0..100 LIKELY; visual result pending |
+| Confidence | CONFIRMED on the wire for the vendor application and the SDK (experiment 0009); only 40..55 and 100 have been sent to the dial |
 
 ```text
 03 44 32      brightness 50

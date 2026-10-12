@@ -143,7 +143,9 @@ Observed with MasterHUB 1.0.0.113 (experiments 0001, 0003):
   redraws the dial once per second.
 - Reads the fader positions on start and every ~2 s afterwards.
 - Sends LED settings live while the user adjusts them and stores the colour
-  in the module a few seconds later (experiment 0006).
+  in the module a few seconds later (experiment 0006). While running it
+  re-sends the LED settings of its profile every 60 s, overriding anything
+  another program has set (experiment 0009).
 - Draws the mounted modules at their real positions and orientation, so it
   has a way to locate them; nothing in the HID traffic seen so far carries
   that information.
