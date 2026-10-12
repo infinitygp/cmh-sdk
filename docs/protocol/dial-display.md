@@ -64,14 +64,16 @@ The device info payload has the layout described in
 
 | | |
 |---|---|
-| Report | `03 49 01`, 32 bytes, `SET_REPORT` feature |
+| Report | `03 49 <mode>`, 32 bytes, `SET_REPORT` feature |
+| Values | `01` application control, `00` standalone |
 | Reply | none |
-| Confidence | CONFIRMED as sent by the vendor application and for its effect (experiments 0017, 0020) |
+| Confidence | CONFIRMED as sent by the vendor application and for its effect (experiments 0017, 0020, 0026) |
 
-Sent by the vendor application right after opening the module and again
-before it starts drawing. `03 49 00` has never been observed, so the SDK
-refuses to send it. After power-up the dial plays a built-in animation and
-sends no input reports until software mode is enabled (experiment 0017).
+`03 49 01` is sent by the vendor application right after opening the
+module and again before it starts drawing, `03 49 00` when it exits
+(experiment 0026). After power-up, and after `03 49 00`, the dial plays a
+built-in animation and sends no input reports until software mode is
+enabled (experiment 0017).
 
 ## Feature write: display brightness
 
@@ -127,6 +129,7 @@ baseline three component JPEG (4:4:4, 4:2:2 or 4:2:0) of exactly
 
 ## Not investigated
 
-Animations. UNKNOWN. The feature reports the vendor application does not
+Nothing the vendor application uses is left: it animates by sending
+images (experiment 0026). The feature reports the vendor application does not
 use were read once; see the table in [README.md](README.md) and experiment
 0018.

@@ -79,7 +79,8 @@ place (experiment 0021).
 
 The vendor application sends `03 3a 00` right after opening the module and
 `03 3a 01` about five seconds later, immediately before the first image
-upload. It reads the firmware version only after that.
+upload. It reads the firmware version only after that. When it exits it
+sends `03 3a 00` (experiment 0026).
 
 SDK: `Module::set_software_mode`. Enabling sends the command twice and
 confirms with a firmware read, see [feature reads](#feature-reads).
@@ -167,6 +168,11 @@ and at most 18 KiB.
 
 ## Not investigated
 
-Full-screen images and other output commands. UNKNOWN. The feature reports
-the vendor application does not use were read once; see the table in
-[README.md](README.md) and experiment 0018.
+- `03 37 00 00 00 00`, a feature write the vendor application sends once
+  before it starts animating a key. LIKELY "fill key 0 with black"
+  (experiment 0026). The SDK does not send it; a plain image does the same.
+- Full-screen images and other output commands. UNKNOWN; the vendor
+  application was not seen using any. It animates a key by uploading
+  images, about 11 per second (experiment 0026).
+- The feature reports the vendor application does not use were read once;
+  see the table in [README.md](README.md) and experiment 0018.

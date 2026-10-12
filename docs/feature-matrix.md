@@ -31,7 +31,7 @@ Firmware: Base
 | `AnalogChanged` | n/a | n/a | n/a | n/a | n/a | done |
 | Initial analog positions | n/a | n/a | n/a | n/a | n/a | done |
 | Base orientation (flat / upright) | done | n/a | n/a | n/a | n/a | n/a |
-| Software mode switch | n/a | done | n/a | n/a | done (on only) | n/a |
+| Software mode switch, on and off | n/a | done | n/a | n/a | done | n/a |
 | Image upload | n/a | done | n/a | n/a | done | n/a |
 | Sustained animation, upload rate measured (0025) | n/a | done | n/a | n/a | done | n/a |
 | Display brightness, set and read back | n/a | done | n/a | n/a | done | n/a |
@@ -81,8 +81,10 @@ being seated (experiment 0011).
    on the keys, above 28 kB on the dial). Both take 4:2:2 and 4:2:0; the
    keys take neither progressive nor greyscale, which was not tried on the
    dial (experiment 0019). The SDK accepts only what was seen working.
-5. Behaviour on a clean exit of the vendor application (only a kill was
-   observed).
+5. What the vendor's background process (`MHDaemon.exe`) does on its
+   own: it keeps running after the application exits and is the likely
+   sender of the software mode command the keys receive at that moment
+   (experiment 0026).
 6. Display modules in standalone mode (experiment 0021): why a firmware
    or brightness read there delays the feature writes that follow, and
    why a brightness level sent right after entering software mode can be

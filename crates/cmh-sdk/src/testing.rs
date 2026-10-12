@@ -57,7 +57,7 @@ impl State {
     fn carry_out(&mut self, command: &[u8]) {
         match (command[1], command[2]) {
             (0x3a | 0x49, 1) if !self.stuck => self.standalone = false,
-            (0x3a, 0) => self.standalone = true,
+            (0x3a | 0x49, 0) => self.standalone = true,
             (0x34 | 0x44, _) if self.standalone => {}
             (0x34 | 0x44, _) if self.ignore_backlight > 0 => self.ignore_backlight -= 1,
             (0x34 | 0x44, level) => {

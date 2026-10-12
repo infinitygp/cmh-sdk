@@ -260,7 +260,7 @@ impl Module {
 
     /// Hands a display module to the application (`true`) or back to
     /// standalone operation (`false`). The vendor application enables it
-    /// before uploading images.
+    /// before uploading images and disables it when it exits.
     ///
     /// In standalone mode, which is where a module starts after power-up,
     /// it plays a built-in animation, sends no input, shows no uploaded
@@ -475,14 +475,16 @@ mod tests {
         assert!(dial.firmware().is_err());
         assert_eq!(mock.sent().len(), sent);
 
-        // The dial cannot be sent back, and the attempt changes nothing.
         mock.0.lock().unwrap().stuck = false;
         dial.set_software_mode(true).unwrap();
-        assert!(matches!(
-            dial.set_software_mode(false),
-            Err(Error::Unsupported { .. })
-        ));
         assert_eq!(dial.firmware().unwrap().version, "01.00.04.00");
+        // Handing the dial back works like on the keys.
+        dial.set_software_mode(false).unwrap();
+        assert_eq!(mock.sent().last(), Some(&mode_report(0x49, false)));
+        assert!(matches!(
+            dial.firmware(),
+            Err(Error::NotInSoftwareMode { .. })
+        ));
         assert!(
             mock.module(ModuleKind::Knobs3)
                 .set_software_mode(true)

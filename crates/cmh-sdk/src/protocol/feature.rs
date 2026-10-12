@@ -190,18 +190,12 @@ impl DisplayInfo {
 /// Builds the feature write that switches a display module between
 /// application control (`true`) and standalone operation (`false`).
 ///
-/// The vendor application sends `true` before it uploads images. Disabling
-/// has only been observed on the 15 LCD Keys.
+/// The vendor application sends `true` before it uploads images and
+/// `false` to both display modules when it exits (experiment 0026).
 pub fn software_mode_report(kind: ModuleKind, enabled: bool) -> Result<[u8; FEATURE_REPORT_LEN]> {
     let command = match (kind.family(), enabled) {
         (Family::Keys, _) => 0x3a,
-        (Family::Dial, true) => 0x49,
-        (Family::Dial, false) => {
-            return Err(Error::Unsupported {
-                module: kind.name(),
-                capability: "leaving software mode",
-            });
-        }
+        (Family::Dial, _) => 0x49,
         (Family::Basic, _) => {
             return Err(Error::Unsupported {
                 module: kind.name(),
@@ -389,7 +383,11 @@ mod tests {
             software_mode_report(ModuleKind::DialDisplay, true).unwrap()[..3],
             [0x03, 0x49, 0x01]
         );
-        assert!(software_mode_report(ModuleKind::DialDisplay, false).is_err());
+        // Sent by the vendor application when it exits (experiment 0026).
+        assert_eq!(
+            software_mode_report(ModuleKind::DialDisplay, false).unwrap()[..3],
+            [0x03, 0x49, 0x00]
+        );
         assert!(software_mode_report(ModuleKind::Knobs3, true).is_err());
     }
 }
