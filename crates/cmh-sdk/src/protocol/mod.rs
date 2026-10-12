@@ -4,6 +4,7 @@ pub mod feature;
 pub mod frame;
 pub mod image;
 pub mod input;
+pub mod led;
 
 pub use frame::InputFrame;
 pub use input::InputMessage;

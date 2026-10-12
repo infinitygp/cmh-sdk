@@ -50,6 +50,8 @@ pub struct Capabilities {
     pub encoders: u8,
     /// Absolute controls reporting a position of 0..=100.
     pub faders: u8,
+    /// Independently controllable LED zones.
+    pub leds: u8,
     pub display: Option<DisplaySpec>,
 }
 
@@ -106,18 +108,23 @@ impl ModuleKind {
 
     /// Verified capabilities of this model.
     ///
-    /// LEDs are not listed yet because their reports have not been confirmed
-    /// on hardware.
+    /// The LED rings of the 3 Knobs are not listed yet because their reports
+    /// have not been confirmed on hardware.
     pub const fn capabilities(self) -> Capabilities {
         const NONE: Capabilities = Capabilities {
             buttons: 0,
             encoders: 0,
             faders: 0,
+            leds: 0,
             display: None,
         };
         match self {
-            ModuleKind::Base => NONE,
-            ModuleKind::Faders5 => Capabilities { faders: 5, ..NONE },
+            ModuleKind::Base => Capabilities { leds: 1, ..NONE },
+            ModuleKind::Faders5 => Capabilities {
+                faders: 5,
+                leds: 5,
+                ..NONE
+            },
             ModuleKind::Keys15 => Capabilities {
                 buttons: 15,
                 display: Some(DisplaySpec {

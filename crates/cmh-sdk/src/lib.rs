@@ -50,4 +50,5 @@ pub use error::{Error, Result};
 pub use input::{InputDecoder, InputEvent};
 pub use manager::{HotplugEvent, Manager};
 pub use module::Module;
+pub use protocol::led::LedMode;
 pub use transport::{HidInterface, enumerate};

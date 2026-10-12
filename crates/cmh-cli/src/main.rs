@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use cmh_sdk::fixture::{Direction, Fixture, Record};
 use cmh_sdk::protocol::InputMessage;
-use cmh_sdk::{Error, HidInterface, InputDecoder, Manager, Module, ModuleKind, Result};
+use cmh_sdk::{Error, HidInterface, InputDecoder, LedMode, Manager, Module, ModuleKind, Result};
 
 #[derive(Parser)]
 #[command(name = "cmh", about = "Cooler Master MasterHUB diagnostics", version)]
@@ -50,6 +50,22 @@ enum Command {
         select: Select,
         state: Switch,
     },
+    /// Set LED effect, colour and brightness (not stored by the module).
+    Led {
+        #[command(flatten)]
+        select: Select,
+        /// LED zone; all zones of the module when omitted.
+        #[arg(long)]
+        index: Option<u8>,
+        #[arg(long, value_enum)]
+        mode: Option<Effect>,
+        /// Colour as RRGGBB.
+        #[arg(long, value_parser = parse_rgb)]
+        color: Option<(u8, u8, u8)>,
+        /// 0..100.
+        #[arg(long)]
+        brightness: Option<u8>,
+    },
     /// Show a JPEG on a key or on the dial (not stored by the module).
     Image {
         #[command(flatten)]
@@ -86,6 +102,28 @@ enum Model {
 enum Switch {
     On,
     Off,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Effect {
+    Off,
+    Static,
+    Breathing,
+    Strobe,
+    Cycling,
+    Random,
+    Wave,
+    Water,
+    Rainbow,
+}
+
+fn parse_rgb(text: &str) -> std::result::Result<(u8, u8, u8), String> {
+    let text = text.trim_start_matches('#');
+    if text.len() != 6 || !text.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("expected RRGGBB".to_owned());
+    }
+    let channel = |i: usize| u8::from_str_radix(&text[i..i + 2], 16).map_err(|e| e.to_string());
+    Ok((channel(0)?, channel(2)?, channel(4)?))
 }
 
 impl Select {
@@ -142,6 +180,13 @@ fn main() -> ExitCode {
         Command::Replay { file } => replay(&file),
         Command::SoftwareMode { select, state } => software_mode(&select, state),
         Command::Image { select, key, file } => image(&select, key, &file),
+        Command::Led {
+            select,
+            index,
+            mode,
+            color,
+            brightness,
+        } => led(&select, index, mode, color, brightness),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -221,8 +266,8 @@ fn info(select: &Select) -> Result<()> {
         println!("{}", label(interface));
         let caps = interface.kind.capabilities();
         print!(
-            "    capabilities: {} button(s), {} encoder(s), {} fader(s)",
-            caps.buttons, caps.encoders, caps.faders
+            "    capabilities: {} button(s), {} encoder(s), {} fader(s), {} LED zone(s)",
+            caps.buttons, caps.encoders, caps.faders, caps.leds
         );
         match caps.display {
             Some(d) => println!(", {} image(s) of {}x{}", d.images, d.width, d.height),
@@ -444,6 +489,46 @@ fn software_mode(select: &Select, state: Switch) -> Result<()> {
         module.kind(),
         if enabled { "on" } else { "off" }
     );
+    Ok(())
+}
+
+fn led(
+    select: &Select,
+    index: Option<u8>,
+    mode: Option<Effect>,
+    color: Option<(u8, u8, u8)>,
+    brightness: Option<u8>,
+) -> Result<()> {
+    let module = select.one(&connected()?)?;
+    let zones = match index {
+        Some(index) => index..=index,
+        None => 0..=module.kind().capabilities().leds.saturating_sub(1),
+    };
+    for zone in zones {
+        if let Some((r, g, b)) = color {
+            module.set_led_color(zone, r, g, b)?;
+        }
+        if let Some(mode) = mode {
+            module.set_led_mode(
+                zone,
+                match mode {
+                    Effect::Off => LedMode::Off,
+                    Effect::Static => LedMode::Static,
+                    Effect::Breathing => LedMode::Breathing,
+                    Effect::Strobe => LedMode::Strobe,
+                    Effect::Cycling => LedMode::Cycling,
+                    Effect::Random => LedMode::Random,
+                    Effect::Wave => LedMode::Wave,
+                    Effect::Water => LedMode::Water,
+                    Effect::Rainbow => LedMode::Rainbow,
+                },
+            )?;
+        }
+        if let Some(level) = brightness {
+            module.set_led_brightness(zone, level)?;
+        }
+    }
+    println!("{}: LED settings sent", module.kind());
     Ok(())
 }
 

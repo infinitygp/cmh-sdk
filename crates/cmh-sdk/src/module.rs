@@ -12,6 +12,7 @@ use crate::protocol::feature::{
 };
 use crate::protocol::frame::INPUT_REPORT_LEN;
 use crate::protocol::image::image_reports;
+use crate::protocol::led::{LedCommand, LedMode, led_report};
 use crate::transport::Transport;
 
 /// Typed access to one open module.
@@ -135,6 +136,29 @@ impl Module {
         let positions = parse_fader_positions(feature_payload(&self.read_feature(id)?, id)?)?;
         self.decoder.set_fader_positions(&positions);
         Ok(positions)
+    }
+
+    fn set_led(&self, index: u8, command: LedCommand) -> Result<()> {
+        self.transport
+            .write_output(&led_report(self.kind, index, command)?)
+    }
+
+    /// Selects the effect of LED zone `index`.
+    ///
+    /// LED settings made through the SDK are not stored by the module.
+    pub fn set_led_mode(&self, index: u8, mode: LedMode) -> Result<()> {
+        self.set_led(index, LedCommand::Mode(mode))
+    }
+
+    /// Sets the colour of LED zone `index`, used by the static, breathing
+    /// and strobe effects.
+    pub fn set_led_color(&self, index: u8, r: u8, g: u8, b: u8) -> Result<()> {
+        self.set_led(index, LedCommand::Color { r, g, b })
+    }
+
+    /// Sets the brightness (`0..=100`) of LED zone `index`.
+    pub fn set_led_brightness(&self, index: u8, level: u8) -> Result<()> {
+        self.set_led(index, LedCommand::Brightness(level))
     }
 
     /// Hands a display module to the application (`true`) or back to
@@ -410,8 +434,22 @@ mod tests {
             for target in [0, 14, 15, 255] {
                 let _ = module.set_image(target, &key);
                 let _ = module.set_image(target, &dial);
+                for mode in LedMode::ALL {
+                    let _ = module.set_led_mode(target, mode);
+                }
+                let _ = module.set_led_color(target, 1, 2, 3);
+                let _ = module.set_led_brightness(target, 100);
+                let _ = module.set_led_brightness(target, 255);
             }
             for sent in mock.sent() {
+                if let Sent::Output(r) = &sent {
+                    // LED reports never ask the module to store a setting.
+                    match r[1] {
+                        0x2c => assert_eq!(r[5], 0),
+                        0x2d => assert_eq!(r[7], 0),
+                        _ => {}
+                    }
+                }
                 seen.insert(match sent {
                     Sent::Output(r) => (kind.name(), "out", r[0], r[1]),
                     Sent::Feature(r) => (kind.name(), "set", r[0], r[1]),
@@ -423,6 +461,12 @@ mod tests {
         let expected = std::collections::BTreeSet::from([
             (Base.name(), "get", 0x2e, 0),
             (Base.name(), "get", 0x31, 0),
+            (Base.name(), "out", 0x02, 0x2c),
+            (Base.name(), "out", 0x02, 0x2d),
+            (Base.name(), "out", 0x02, 0x2e),
+            (Faders5.name(), "out", 0x02, 0x2c),
+            (Faders5.name(), "out", 0x02, 0x2d),
+            (Faders5.name(), "out", 0x02, 0x2e),
             (Faders5.name(), "get", 0x2e, 0),
             (Faders5.name(), "get", 0x31, 0),
             (Faders5.name(), "get", 0x33, 0),
