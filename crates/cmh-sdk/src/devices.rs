@@ -1,4 +1,4 @@
-//! MasterHUB module models.
+//! MasterHUB module models and their static capabilities.
 
 use std::fmt;
 
@@ -9,18 +9,48 @@ pub const VENDOR_ID: u16 = 0x2516;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ModuleKind {
-    /// Base plate (4x6 grid) hosting the other modules.
+    /// Base plate hosting the other modules.
     Base,
     /// 15 LCD keys.
     Keys15,
-    /// 5 motorless faders.
+    /// 5 faders.
     Faders5,
     /// 3 rotary knobs with push.
     Knobs3,
     /// 2 rollers.
     Rollers2,
-    /// Single dial with an IPS display.
+    /// Single dial with a round IPS display.
     DialDisplay,
+}
+
+/// Modules that share report IDs, command codes and report sizes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Family {
+    /// Base, faders, knobs and rollers.
+    Basic,
+    Keys,
+    Dial,
+}
+
+/// A display that accepts JPEG images.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct DisplaySpec {
+    /// Number of independently addressable images.
+    pub images: u8,
+    pub width: u16,
+    pub height: u16,
+}
+
+/// What a module model offers. Only hardware-verified items are listed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Capabilities {
+    pub buttons: u8,
+    pub encoders: u8,
+    /// Absolute controls reporting a position of 0..=100.
+    pub faders: u8,
+    pub display: Option<DisplaySpec>,
 }
 
 impl ModuleKind {
@@ -62,8 +92,7 @@ impl ModuleKind {
 
     /// Prefix shared by the serial numbers of this model, e.g. `MHKB03AA22`.
     ///
-    /// Observed on real units for every model except [`ModuleKind::Faders5`],
-    /// whose prefix comes from third-party documentation.
+    /// Observed on real units of every model.
     pub const fn serial_prefix(self) -> &'static str {
         match self {
             ModuleKind::Base => "MHBS01AA46",
@@ -72,6 +101,61 @@ impl ModuleKind {
             ModuleKind::Knobs3 => "MHKB03AA22",
             ModuleKind::Rollers2 => "MHRR02AA41",
             ModuleKind::DialDisplay => "MHDD01AA22",
+        }
+    }
+
+    /// Verified capabilities of this model.
+    ///
+    /// LEDs are not listed yet because their reports have not been confirmed
+    /// on hardware.
+    pub const fn capabilities(self) -> Capabilities {
+        const NONE: Capabilities = Capabilities {
+            buttons: 0,
+            encoders: 0,
+            faders: 0,
+            display: None,
+        };
+        match self {
+            ModuleKind::Base => NONE,
+            ModuleKind::Faders5 => Capabilities { faders: 5, ..NONE },
+            ModuleKind::Keys15 => Capabilities {
+                buttons: 15,
+                display: Some(DisplaySpec {
+                    images: 15,
+                    width: 72,
+                    height: 72,
+                }),
+                ..NONE
+            },
+            ModuleKind::Knobs3 => Capabilities {
+                buttons: 3,
+                encoders: 3,
+                ..NONE
+            },
+            ModuleKind::Rollers2 => Capabilities {
+                encoders: 2,
+                ..NONE
+            },
+            ModuleKind::DialDisplay => Capabilities {
+                buttons: 1,
+                encoders: 1,
+                display: Some(DisplaySpec {
+                    images: 1,
+                    width: 240,
+                    height: 240,
+                }),
+                ..NONE
+            },
+        }
+    }
+
+    pub(crate) const fn family(self) -> Family {
+        match self {
+            ModuleKind::Base | ModuleKind::Faders5 | ModuleKind::Knobs3 | ModuleKind::Rollers2 => {
+                Family::Basic
+            }
+            ModuleKind::Keys15 => Family::Keys,
+            ModuleKind::DialDisplay => Family::Dial,
         }
     }
 }

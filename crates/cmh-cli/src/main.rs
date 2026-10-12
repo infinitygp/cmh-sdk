@@ -1,8 +1,12 @@
+use std::ffi::CString;
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use clap::{Parser, Subcommand};
-use cmh_sdk::transport::{self, HidInterface, RawDevice};
+use clap::{Args, Parser, Subcommand, ValueEnum};
+use cmh_sdk::fixture::{Direction, Fixture, Record};
+use cmh_sdk::protocol::InputMessage;
+use cmh_sdk::{Error, HidInterface, InputDecoder, Manager, Module, ModuleKind, Result};
 
 #[derive(Parser)]
 #[command(name = "cmh", about = "Cooler Master MasterHUB diagnostics", version)]
@@ -19,24 +23,125 @@ enum Command {
         #[arg(long)]
         descriptors: bool,
     },
-    /// Passively print raw input reports (never writes to the device).
-    Sniff {
-        /// Only listen to modules whose serial contains this text.
+    /// Show capabilities, firmware version and device info (read only).
+    Info {
+        #[command(flatten)]
+        select: Select,
+    },
+    /// Print decoded input events live; follows hot-plug.
+    Monitor {
+        #[command(flatten)]
+        select: Select,
+        /// Also print every raw report in fixture format.
         #[arg(long)]
-        serial: Option<String>,
-        /// Stop after this many seconds.
-        #[arg(long, default_value_t = 10)]
-        seconds: u64,
+        raw: bool,
+        /// Include the periodic base heartbeat in --raw output.
+        #[arg(long)]
+        heartbeat: bool,
+        /// Stop after this many seconds (default: run until interrupted).
+        #[arg(long)]
+        seconds: Option<u64>,
+    },
+    /// Decode a recorded fixture file without any hardware.
+    Replay { file: PathBuf },
+    /// Switch a display module to application control or back.
+    SoftwareMode {
+        #[command(flatten)]
+        select: Select,
+        state: Switch,
+    },
+    /// Show a JPEG on a key or on the dial (not stored by the module).
+    Image {
+        #[command(flatten)]
+        select: Select,
+        /// Key index 0..14 on the 15 LCD Keys.
+        #[arg(long, default_value_t = 0)]
+        key: u8,
+        /// Baseline 4:4:4 JPEG of the exact display size (72x72 or 240x240).
+        file: PathBuf,
     },
 }
 
-fn main() -> ExitCode {
-    let cli = Cli::parse();
-    let result = match cli.command {
-        Command::List { descriptors } => list(descriptors),
-        Command::Sniff { serial, seconds } => {
-            sniff(serial.as_deref(), Duration::from_secs(seconds))
+#[derive(Args)]
+struct Select {
+    /// Only modules of this model.
+    #[arg(long, value_enum)]
+    module: Option<Model>,
+    /// Only modules whose serial number contains this text.
+    #[arg(long)]
+    serial: Option<String>,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Model {
+    Base,
+    Keys,
+    Faders,
+    Knobs,
+    Rollers,
+    Dial,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Switch {
+    On,
+    Off,
+}
+
+impl Select {
+    fn matches(&self, interface: &HidInterface) -> bool {
+        let kind = self.module.map(|m| match m {
+            Model::Base => ModuleKind::Base,
+            Model::Keys => ModuleKind::Keys15,
+            Model::Faders => ModuleKind::Faders5,
+            Model::Knobs => ModuleKind::Knobs3,
+            Model::Rollers => ModuleKind::Rollers2,
+            Model::Dial => ModuleKind::DialDisplay,
+        });
+        kind.is_none_or(|k| k == interface.kind)
+            && self.serial.as_deref().is_none_or(|wanted| {
+                interface
+                    .serial
+                    .as_deref()
+                    .is_some_and(|s| s.contains(wanted))
+            })
+    }
+
+    fn all(&self, manager: &Manager) -> Vec<HidInterface> {
+        manager
+            .modules()
+            .iter()
+            .filter(|i| self.matches(i))
+            .cloned()
+            .collect()
+    }
+
+    /// Resolves the selection to exactly one module.
+    fn one(&self, manager: &Manager) -> Result<Module> {
+        match self.all(manager).as_slice() {
+            [interface] => manager.open_interface(interface),
+            [] => Err(Error::NotFound("the selection".to_owned())),
+            many => Err(Error::InvalidArgument(format!(
+                "selection matches {} modules; narrow it with --module or --serial",
+                many.len()
+            ))),
         }
+    }
+}
+
+fn main() -> ExitCode {
+    let result = match Cli::parse().command {
+        Command::List { descriptors } => list(descriptors),
+        Command::Info { select } => info(&select),
+        Command::Monitor {
+            select,
+            raw,
+            heartbeat,
+            seconds,
+        } => monitor(&select, raw, heartbeat, seconds.map(Duration::from_secs)),
+        Command::Replay { file } => replay(&file),
+        Command::SoftwareMode { select, state } => software_mode(&select, state),
+        Command::Image { select, key, file } => image(&select, key, &file),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -65,13 +170,19 @@ fn label(interface: &HidInterface) -> String {
     )
 }
 
-fn list(descriptors: bool) -> cmh_sdk::Result<()> {
-    let interfaces = transport::enumerate()?;
-    if interfaces.is_empty() {
+fn connected() -> Result<Manager> {
+    let mut manager = Manager::new()?;
+    manager.refresh()?;
+    Ok(manager)
+}
+
+fn list(descriptors: bool) -> Result<()> {
+    let manager = connected()?;
+    if manager.modules().is_empty() {
         println!("no MasterHUB modules found");
         return Ok(());
     }
-    for interface in &interfaces {
+    for interface in manager.modules() {
         println!("{}", label(interface));
         println!(
             "    product={:?} manufacturer={:?} bcdDevice={:04x} interface={} usage_page={:04x} usage={:04x}",
@@ -84,7 +195,10 @@ fn list(descriptors: bool) -> cmh_sdk::Result<()> {
         );
         println!("    path={}", interface.path.to_string_lossy());
         if descriptors {
-            match RawDevice::open(interface).and_then(|d| d.report_descriptor()) {
+            let descriptor = manager
+                .open_interface(interface)
+                .and_then(|m| m.report_descriptor());
+            match descriptor {
                 Ok(descriptor) => println!(
                     "    report_descriptor[{}]={}",
                     descriptor.len(),
@@ -97,44 +211,291 @@ fn list(descriptors: bool) -> cmh_sdk::Result<()> {
     Ok(())
 }
 
-fn sniff(serial: Option<&str>, duration: Duration) -> cmh_sdk::Result<()> {
-    let interfaces: Vec<HidInterface> = transport::enumerate()?
-        .into_iter()
-        .filter(|i| match serial {
-            Some(wanted) => i.serial.as_deref().is_some_and(|s| s.contains(wanted)),
-            None => true,
-        })
-        .collect();
-    let mut devices = Vec::new();
+fn info(select: &Select) -> Result<()> {
+    let manager = connected()?;
+    let interfaces = select.all(&manager);
+    if interfaces.is_empty() {
+        return Err(Error::NotFound("the selection".to_owned()));
+    }
     for interface in &interfaces {
-        match RawDevice::open(interface) {
-            Ok(device) => devices.push((label(interface), device)),
-            Err(err) => eprintln!("cannot open {}: {err}", label(interface)),
+        println!("{}", label(interface));
+        let caps = interface.kind.capabilities();
+        print!(
+            "    capabilities: {} button(s), {} encoder(s), {} fader(s)",
+            caps.buttons, caps.encoders, caps.faders
+        );
+        match caps.display {
+            Some(d) => println!(", {} image(s) of {}x{}", d.images, d.width, d.height),
+            None => println!(", no display"),
         }
-    }
-    if devices.is_empty() {
-        return Err(cmh_sdk::Error::NotFound(
-            serial.unwrap_or("any module").to_owned(),
-        ));
-    }
-    eprintln!(
-        "listening on {} interface(s) for {duration:?}",
-        devices.len()
-    );
-
-    let start = Instant::now();
-    let mut buf = [0u8; 1024];
-    while start.elapsed() < duration {
-        for (name, device) in &devices {
-            let len = device.read_input(&mut buf, Duration::from_millis(5))?;
-            if len > 0 {
-                println!(
-                    "{:9.3} {name} [{len}] {}",
-                    start.elapsed().as_secs_f64(),
-                    hex(&buf[..len])
-                );
+        let mut module = match manager.open_interface(interface) {
+            Ok(module) => module,
+            Err(err) => {
+                println!("    <cannot open: {err}>");
+                continue;
+            }
+        };
+        match module.firmware() {
+            Ok(fw) => println!(
+                "    firmware: {} (build tag {})",
+                fw.version,
+                hex(&fw.build_tag)
+            ),
+            Err(err) => println!("    firmware: <{err}>"),
+        }
+        match module.device_info() {
+            Ok(raw) => println!("    device info: {}", hex(&raw)),
+            Err(err) => println!("    device info: <{err}>"),
+        }
+        if caps.display.is_some() {
+            match module.display_info() {
+                Ok(d) => println!(
+                    "    display: images {}x{}, panel {}x{}, grid {}x{} ({} keys)",
+                    d.image_width,
+                    d.image_height,
+                    d.panel_width,
+                    d.panel_height,
+                    d.columns,
+                    d.rows,
+                    d.keys
+                ),
+                Err(err) => println!("    display: <{err}>"),
+            }
+        }
+        if caps.faders > 0 {
+            match module.fader_positions() {
+                Ok(positions) => println!("    fader positions: {positions:?}"),
+                Err(err) => println!("    fader positions: <{err}>"),
             }
         }
     }
     Ok(())
+}
+
+/// Identity of a module for as long as it stays plugged in.
+type Key = (Option<String>, CString);
+
+fn key(interface: &HidInterface) -> Key {
+    (interface.serial.clone(), interface.path.clone())
+}
+
+/// Decides which open handles to close and which listed modules to open so
+/// that the open set matches what is currently connected. Modules that
+/// failed to open or were dropped after an I/O error are simply absent from
+/// `open` and therefore retried on every pass.
+fn reconcile(open: &[Key], listed: &[Key]) -> (Vec<Key>, Vec<Key>) {
+    let close = open
+        .iter()
+        .filter(|k| !listed.contains(k))
+        .cloned()
+        .collect();
+    let to_open = listed
+        .iter()
+        .filter(|k| !open.contains(k))
+        .cloned()
+        .collect();
+    (close, to_open)
+}
+
+fn monitor(select: &Select, raw: bool, heartbeat: bool, limit: Option<Duration>) -> Result<()> {
+    const RESCAN: Duration = Duration::from_secs(1);
+
+    let mut manager = Manager::new()?;
+    let mut open: Vec<(HidInterface, Module)> = Vec::new();
+    // Modules whose open error was already reported, to avoid repeating it
+    // on every rescan.
+    let mut complained: Vec<Key> = Vec::new();
+    let start = Instant::now();
+    let mut last_scan: Option<Instant> = None;
+    let stamp = |start: Instant| start.elapsed().as_secs_f64();
+
+    while limit.is_none_or(|l| start.elapsed() < l) {
+        if last_scan.is_none_or(|t| t.elapsed() >= RESCAN) {
+            last_scan = Some(Instant::now());
+            manager.refresh()?;
+            let listed = select.all(&manager);
+            let listed_keys: Vec<Key> = listed.iter().map(key).collect();
+            let open_keys: Vec<Key> = open.iter().map(|(i, _)| key(i)).collect();
+            let (close, to_open) = reconcile(&open_keys, &listed_keys);
+
+            open.retain(|(interface, _)| {
+                let gone = close.contains(&key(interface));
+                if gone {
+                    println!("# {:9.3} left    {}", stamp(start), label(interface));
+                }
+                !gone
+            });
+            complained.retain(|k| listed_keys.contains(k));
+            for interface in listed.iter().filter(|i| to_open.contains(&key(i))) {
+                match manager.open_interface(interface) {
+                    Ok(mut module) => {
+                        println!("# {:9.3} arrived {}", stamp(start), label(interface));
+                        if interface.kind.capabilities().faders > 0 {
+                            match module.fader_positions() {
+                                Ok(p) => println!("# {:9.3} fader positions {p:?}", stamp(start)),
+                                Err(err) => {
+                                    println!("# {:9.3} fader positions: {err}", stamp(start))
+                                }
+                            }
+                        }
+                        complained.retain(|k| *k != key(interface));
+                        open.push((interface.clone(), module));
+                    }
+                    Err(err) => {
+                        if !complained.contains(&key(interface)) {
+                            eprintln!("cannot open {}: {err} (will retry)", label(interface));
+                            complained.push(key(interface));
+                        }
+                    }
+                }
+            }
+        }
+        if open.is_empty() {
+            std::thread::sleep(Duration::from_millis(100));
+            continue;
+        }
+        let mut failed = None;
+        for (i, (interface, module)) in open.iter_mut().enumerate() {
+            let report = match module.read_raw(Duration::from_millis(5)) {
+                Ok(Some(report)) => report,
+                Ok(None) => continue,
+                Err(err) => {
+                    println!(
+                        "# {:9.3} lost    {} ({err})",
+                        stamp(start),
+                        label(interface)
+                    );
+                    failed = Some(i);
+                    break;
+                }
+            };
+            let is_heartbeat = matches!(
+                InputMessage::parse(interface.kind, &report),
+                Ok(InputMessage::Heartbeat { .. })
+            );
+            if raw && (heartbeat || !is_heartbeat) {
+                let record = Record::new(stamp(start), interface.kind, Direction::In, &report);
+                println!("{record}");
+            }
+            match module.decode(&report) {
+                Ok(events) => {
+                    for event in events {
+                        println!(
+                            "# {:9.3} {:<12} {event:?}",
+                            stamp(start),
+                            interface.kind.name()
+                        );
+                    }
+                }
+                Err(err) => println!(
+                    "# {:9.3} {:<12} undecodable: {err}",
+                    stamp(start),
+                    interface.kind.name()
+                ),
+            }
+        }
+        if let Some(i) = failed {
+            // The next rescan reopens it if it is still (or again) listed.
+            open.remove(i);
+        }
+    }
+    Ok(())
+}
+
+fn replay(file: &PathBuf) -> Result<()> {
+    let text = std::fs::read_to_string(file)
+        .map_err(|err| Error::InvalidArgument(format!("{}: {err}", file.display())))?;
+    let fixture = Fixture::parse(&text)?;
+    let mut decoders: Vec<InputDecoder> = Vec::new();
+    for record in fixture.records() {
+        println!("{record}");
+        if record.direction != Direction::In {
+            continue;
+        }
+        let index = match decoders.iter().position(|d| d.kind() == record.kind) {
+            Some(index) => index,
+            None => {
+                decoders.push(InputDecoder::new(record.kind));
+                decoders.len() - 1
+            }
+        };
+        match decoders[index].decode(&record.report()) {
+            Ok(events) => {
+                for event in events {
+                    println!(
+                        "# {:9.3} {:<12} {event:?}",
+                        record.seconds,
+                        record.kind.name()
+                    );
+                }
+            }
+            Err(err) => println!("# {:9.3} undecodable: {err}", record.seconds),
+        }
+    }
+    Ok(())
+}
+
+fn software_mode(select: &Select, state: Switch) -> Result<()> {
+    let module = select.one(&connected()?)?;
+    let enabled = matches!(state, Switch::On);
+    module.set_software_mode(enabled)?;
+    println!(
+        "{}: software mode {}",
+        module.kind(),
+        if enabled { "on" } else { "off" }
+    );
+    Ok(())
+}
+
+fn image(select: &Select, key: u8, file: &PathBuf) -> Result<()> {
+    let jpeg = std::fs::read(file)
+        .map_err(|err| Error::InvalidArgument(format!("{}: {err}", file.display())))?;
+    let module = select.one(&connected()?)?;
+    // Validate before touching the module so that a rejected file leaves it
+    // exactly as it was.
+    module.check_image(key, &jpeg)?;
+    module.set_software_mode(true)?;
+    module.set_image(key, &jpeg)?;
+    println!(
+        "{}: sent {} bytes to image {key}",
+        module.kind(),
+        jpeg.len()
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn k(serial: &str, path: &str) -> Key {
+        (Some(serial.to_owned()), CString::new(path).unwrap())
+    }
+
+    #[test]
+    fn opens_new_and_closes_departed_modules() {
+        let open = [k("A", "p1"), k("B", "p2")];
+        let listed = [k("B", "p2"), k("C", "p3")];
+        assert_eq!(
+            reconcile(&open, &listed),
+            (vec![k("A", "p1")], vec![k("C", "p3")])
+        );
+    }
+
+    #[test]
+    fn retries_modules_that_are_listed_but_not_open() {
+        // A failed open or an I/O error leaves the module listed but absent
+        // from the open set; every pass must ask for it again.
+        let listed = [k("A", "p1")];
+        assert_eq!(reconcile(&[], &listed), (vec![], vec![k("A", "p1")]));
+        assert_eq!(reconcile(&listed, &listed), (vec![], vec![]));
+    }
+
+    #[test]
+    fn a_module_under_a_new_path_is_reopened() {
+        assert_eq!(
+            reconcile(&[k("A", "p1")], &[k("A", "p9")]),
+            (vec![k("A", "p1")], vec![k("A", "p9")])
+        );
+    }
 }

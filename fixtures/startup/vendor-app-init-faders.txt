@@ -1,0 +1,23 @@
+# Feature traffic of the vendor application 1.0.0.113 starting with the
+# 5 Faders mounted (docs/experiments/0005). Truncated after 13 s; the fader
+# position read (0x33) keeps repeating every ~2 s.
+# <seconds> <product id> <direction> <hex bytes, zero padding trimmed>
+    4.002 0204 get 31 14
+    4.011 01fe get 3b 0b 14 03 05 0f e0 01 10 01 01 48 48
+    4.011 01fe set 03 3a 00 03 05 0f e0 01 10 01 01 48 48
+    4.211 0204 get 2e 0f 28 35 3e 25 30 31 2e 30 30 2e 30 33 2e 30 31
+    4.541 0200 get 31 14
+    4.544 0200 get 33 05 2c 2d 39 3a 38
+    4.566 01f6 get 31 14
+    4.569 01f6 get 2e 0f 12 54 4c 2f 30 32 2e 30 30 2e 30 34 2e 30 30
+    5.148 0200 get 2e 0f 54 e2 61 51 30 31 2e 30 30 2e 30 35 2e 30 30
+    5.956 0200 get 33 05 2c 2d 39 3a 38
+    7.988 0200 get 33 05 2c 2d 39 3a 38
+    8.089 01fe set 03 3a 01 03 05 0f e0 01 10 01 01 48 48
+    8.090 01fe get 38 0f 29 63 1c 5d 30 32 2e 30 30 2e 30 31 2e 30 30
+    8.091 01fe get 38 0f 29 63 1c 5d 30 32 2e 30 30 2e 30 31 2e 30 30
+    8.304 0204 get 2e 0f 28 35 3e 25 30 31 2e 30 30 2e 30 33 2e 30 31
+    8.521 0200 get 2e 0f 54 e2 61 51 30 31 2e 30 30 2e 30 35 2e 30 30
+    8.738 01f6 get 2e 0f 12 54 4c 2f 30 32 2e 30 30 2e 30 34 2e 30 30
+   10.016 0200 get 33 05 2c 2d 39 3a 38
+   12.048 0200 get 33 05 2c 2d 39 3a 38

@@ -1,0 +1,11 @@
+# One action per module while the vendor application was not running
+# (docs/experiments/0005). The keys and the dial had been put into software
+# mode by the SDK beforehand.
+# <seconds> <product id> <direction> <hex bytes, zero padding trimmed>
+  297.850 01fe in 01 34 11 00 02 0f 00 00 00 00 00 00 01
+  298.217 01fe in 01 34 11 00 02 0f
+  309.018 0202 in 01 2a 05 00 00 03 ff 01 ff
+  316.918 0204 in 01 2a 04 00 01 02 01 ff
+  320.710 0206 in 01 44 03 00 03 01
+  323.527 0206 in 01 44 03 00 04 01 01
+  323.827 0206 in 01 44 03 00 04 01
