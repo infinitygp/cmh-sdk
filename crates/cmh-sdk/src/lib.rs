@@ -40,6 +40,7 @@ pub mod devices;
 pub mod error;
 pub mod fixture;
 pub mod input;
+mod location;
 pub mod manager;
 pub mod module;
 pub mod protocol;

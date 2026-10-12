@@ -9,3 +9,8 @@ publish.workspace = true
 [dependencies]
 hidapi.workspace = true
 thiserror.workspace = true
+
+# Already part of the build through hidapi; used directly to read the USB
+# location of a module.
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true

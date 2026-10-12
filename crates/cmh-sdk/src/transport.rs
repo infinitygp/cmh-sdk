@@ -10,6 +10,7 @@ use hidapi::{HidApi, HidDevice};
 
 use crate::devices::{ModuleKind, VENDOR_ID};
 use crate::error::{Error, Result};
+use crate::location;
 
 /// Raw report access to one module. Buffers always start with the report ID.
 pub(crate) trait Transport: Send {
@@ -42,6 +43,10 @@ pub struct HidInterface {
     pub usage_page: u16,
     pub usage: u16,
     pub interface_number: i32,
+    /// Hub port numbers from the root hub down to this module, when the
+    /// platform exposes them. Changes when the module is moved; see
+    /// [`Manager::mount_path`](crate::Manager::mount_path).
+    pub port_chain: Option<Vec<u8>>,
 }
 
 /// Lists every HID interface exposed by connected MasterHUB modules.
@@ -77,6 +82,7 @@ pub(crate) fn scan(api: &mut HidApi) -> Result<Vec<HidInterface>> {
                 usage_page: d.usage_page(),
                 usage: d.usage(),
                 interface_number: d.interface_number(),
+                port_chain: location::port_chain(d.path()),
             })
         })
         .collect();

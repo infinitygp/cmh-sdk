@@ -2,7 +2,9 @@
 
 use hidapi::HidApi;
 
+use crate::devices::ModuleKind;
 use crate::error::{Error, Result};
+use crate::location::BASE_CONTROLLER_PATH;
 use crate::module::Module;
 use crate::transport::{self, HidInterface, RawDevice};
 
@@ -52,6 +54,17 @@ impl Manager {
         Ok(events)
     }
 
+    /// Port path of a module below the first hub of the base it is mounted
+    /// on, for example `[1, 3, 4]`.
+    ///
+    /// The base wires each mounting position to a fixed hub port, so this
+    /// path identifies where the module sits. It is `None` when the platform
+    /// does not expose USB topology or no base is connected upstream of the
+    /// module. The base itself yields its controller path.
+    pub fn mount_path(&self, interface: &HidInterface) -> Option<Vec<u8>> {
+        mount_path(&self.known, interface)
+    }
+
     /// Opens the module with the given serial number.
     pub fn open(&self, serial: &str) -> Result<Module> {
         let interface = self
@@ -74,6 +87,23 @@ impl Manager {
             Box::new(device),
         ))
     }
+}
+
+fn mount_path(known: &[HidInterface], interface: &HidInterface) -> Option<Vec<u8>> {
+    let chain = interface.port_chain.as_deref()?;
+    known
+        .iter()
+        .filter(|i| i.kind == ModuleKind::Base)
+        .filter_map(|base| {
+            // Everything in front of the controller's own path is the route
+            // from the host to the base's first hub.
+            base.port_chain
+                .as_deref()?
+                .strip_suffix(&BASE_CONTROLLER_PATH)
+        })
+        .find_map(|prefix| chain.strip_prefix(prefix))
+        .filter(|path| !path.is_empty())
+        .map(<[u8]>::to_vec)
 }
 
 fn same_module(a: &HidInterface, b: &HidInterface) -> bool {
@@ -113,7 +143,50 @@ mod tests {
             usage_page: 0x0c,
             usage: 1,
             interface_number: 0,
+            port_chain: None,
         }
+    }
+
+    fn at(kind: ModuleKind, chain: &[u8]) -> HidInterface {
+        HidInterface {
+            port_chain: Some(chain.to_vec()),
+            ..interface(kind, Some("S"), "p")
+        }
+    }
+
+    #[test]
+    fn mount_path_is_relative_to_the_base() {
+        // Chains recorded on the test machine (experiment 0005).
+        let base = at(ModuleKind::Base, &[1, 4, 3, 1, 4, 4]);
+        let knobs = at(ModuleKind::Knobs3, &[1, 4, 3, 1, 3, 4]);
+        let keys = at(ModuleKind::Keys15, &[1, 4, 3, 2, 2]);
+        let known = [base.clone(), knobs.clone(), keys.clone()];
+        assert_eq!(mount_path(&known, &knobs), Some(vec![1, 3, 4]));
+        assert_eq!(mount_path(&known, &keys), Some(vec![2, 2]));
+        assert_eq!(mount_path(&known, &base), Some(vec![1, 4, 4]));
+    }
+
+    #[test]
+    fn mount_path_needs_a_matching_base() {
+        let knobs = at(ModuleKind::Knobs3, &[1, 4, 3, 1, 3, 4]);
+        // No base at all.
+        assert_eq!(mount_path(std::slice::from_ref(&knobs), &knobs), None);
+        // A base on another branch of the bus.
+        let other_base = at(ModuleKind::Base, &[2, 1, 4, 4]);
+        assert_eq!(mount_path(&[other_base, knobs.clone()], &knobs), None);
+        // Topology unknown on this platform.
+        let unknown = interface(ModuleKind::Knobs3, Some("K"), "p");
+        let base = at(ModuleKind::Base, &[1, 4, 3, 1, 4, 4]);
+        assert_eq!(mount_path(&[base, unknown.clone()], &unknown), None);
+    }
+
+    #[test]
+    fn mount_path_picks_the_right_base_of_two() {
+        let first = at(ModuleKind::Base, &[1, 1, 4, 4]);
+        let second = at(ModuleKind::Base, &[2, 1, 4, 4]);
+        let knobs = at(ModuleKind::Knobs3, &[2, 3, 4]);
+        let known = [first, second, knobs.clone()];
+        assert_eq!(mount_path(&known, &knobs), Some(vec![3, 4]));
     }
 
     #[test]

@@ -223,6 +223,13 @@ fn label(interface: &HidInterface) -> String {
     )
 }
 
+fn dotted(path: Option<Vec<u8>>) -> String {
+    match path {
+        Some(path) => path.iter().map(u8::to_string).collect::<Vec<_>>().join("."),
+        None => "?".to_owned(),
+    }
+}
+
 fn connected() -> Result<Manager> {
     let mut manager = Manager::new()?;
     manager.refresh()?;
@@ -247,6 +254,11 @@ fn list(descriptors: bool) -> Result<()> {
             interface.usage,
         );
         println!("    path={}", interface.path.to_string_lossy());
+        println!(
+            "    usb_port_chain={} mount_path={}",
+            dotted(interface.port_chain.clone()),
+            dotted(manager.mount_path(interface))
+        );
         if descriptors {
             let descriptor = manager
                 .open_interface(interface)
@@ -382,7 +394,12 @@ fn monitor(select: &Select, raw: bool, heartbeat: bool, limit: Option<Duration>)
             for interface in listed.iter().filter(|i| to_open.contains(&key(i))) {
                 match manager.open_interface(interface) {
                     Ok(mut module) => {
-                        println!("# {:9.3} arrived {}", stamp(start), label(interface));
+                        println!(
+                            "# {:9.3} arrived {} mount_path={}",
+                            stamp(start),
+                            label(interface),
+                            dotted(manager.mount_path(interface))
+                        );
                         if interface.kind.capabilities().faders > 0 {
                             match module.fader_positions() {
                                 Ok(p) => println!("# {:9.3} fader positions {p:?}", stamp(start)),
