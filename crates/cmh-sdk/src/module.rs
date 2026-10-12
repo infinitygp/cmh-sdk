@@ -1,5 +1,6 @@
 //! An open MasterHUB module.
 
+use std::cell::Cell;
 use std::time::Duration;
 
 use crate::devices::ModuleKind;
@@ -35,7 +36,16 @@ pub struct Module {
     serial: Option<String>,
     transport: Box<dyn Transport>,
     decoder: InputDecoder,
+    /// Whether this handle switched a display module to software mode and
+    /// saw it answer there.
+    software_mode: Cell<bool>,
 }
+
+/// How often a backlight level is sent before giving up, and the pause
+/// between attempts. A display module ignores the level for about 0.3 s
+/// after it entered software mode (experiment 0021).
+const BRIGHTNESS_ATTEMPTS: usize = 8;
+const BRIGHTNESS_RETRY_PAUSE: Duration = Duration::from_millis(60);
 
 impl std::fmt::Debug for Module {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -57,6 +67,7 @@ impl Module {
             serial,
             transport,
             decoder: InputDecoder::new(kind),
+            software_mode: Cell::new(false),
         }
     }
 
@@ -111,10 +122,45 @@ impl Module {
         Ok(buf[..len.min(FEATURE_REPORT_LEN)].to_vec())
     }
 
+    /// Display modules answer some reads only in software mode. Asking in
+    /// standalone mode returns nothing and makes the module carry out later
+    /// feature writes one write late (experiment 0021), so the question is
+    /// not put unless this handle enabled software mode.
+    fn require_software_mode(&self) -> Result<()> {
+        if self.kind.capabilities().display.is_some() && !self.software_mode.get() {
+            return Err(self.not_in_software_mode());
+        }
+        Ok(())
+    }
+
+    fn not_in_software_mode(&self) -> Error {
+        Error::NotInSoftwareMode {
+            module: self.kind.name(),
+        }
+    }
+
+    /// Reads a feature report that a display module leaves empty in
+    /// standalone mode.
+    fn read_software_mode_feature(&self, id: u8) -> Result<Vec<u8>> {
+        let report = self.read_feature(id)?;
+        if report.is_empty() && self.kind.capabilities().display.is_some() {
+            // Something else switched the module back.
+            self.software_mode.set(false);
+            return Err(self.not_in_software_mode());
+        }
+        Ok(report)
+    }
+
     /// Reads the running firmware version.
+    ///
+    /// A display module answers only in software mode: enable it with
+    /// [`set_software_mode`](Self::set_software_mode) on this handle first.
+    /// Without that [`Error::NotInSoftwareMode`] is returned and the module
+    /// is not asked.
     pub fn firmware(&self) -> Result<FirmwareInfo> {
+        self.require_software_mode()?;
         let id = firmware_report_id(self.kind);
-        FirmwareInfo::parse(feature_payload(&self.read_feature(id)?, id)?)
+        FirmwareInfo::parse(feature_payload(&self.read_software_mode_feature(id)?, id)?)
     }
 
     /// Reads the raw device info payload.
@@ -179,6 +225,8 @@ impl Module {
     }
 
     /// Reads the current backlight level (`0..=100`) of a display module.
+    ///
+    /// Needs software mode, like [`firmware`](Self::firmware).
     pub fn display_brightness(&self) -> Result<u8> {
         let Some(id) = display_brightness_report_id(self.kind) else {
             return Err(Error::Unsupported {
@@ -186,7 +234,8 @@ impl Module {
                 capability: "display brightness",
             });
         };
-        let report = self.read_feature(id)?;
+        self.require_software_mode()?;
+        let report = self.read_software_mode_feature(id)?;
         let values = parse_zone_values(feature_payload(&report, id)?, 1, DISPLAY_BRIGHTNESS_MAX)?;
         Ok(values[0])
     }
@@ -212,15 +261,62 @@ impl Module {
     /// Hands a display module to the application (`true`) or back to
     /// standalone operation (`false`). The vendor application enables it
     /// before uploading images.
+    ///
+    /// In standalone mode, which is where a module starts after power-up,
+    /// it plays a built-in animation, sends no input, shows no uploaded
+    /// image and answers neither [`firmware`](Self::firmware) nor
+    /// [`display_brightness`](Self::display_brightness). Enabling is
+    /// confirmed by reading the firmware version;
+    /// [`Error::NotInSoftwareMode`] means the module did not switch.
     pub fn set_software_mode(&self, enabled: bool) -> Result<()> {
-        self.transport
-            .send_feature(&software_mode_report(self.kind, enabled)?)
+        let report = software_mode_report(self.kind, enabled)?;
+        self.software_mode.set(false);
+        self.transport.send_feature(&report)?;
+        if !enabled {
+            return Ok(());
+        }
+        // A module that was asked for its firmware or backlight while in
+        // standalone mode carries out a feature write only when the next
+        // one arrives, and drops it if a read arrives first. The second
+        // copy makes the first one take effect there; the read that
+        // follows returns data and ends that state.
+        self.transport.send_feature(&report)?;
+        let id = firmware_report_id(self.kind);
+        let answer = self.read_feature(id)?;
+        if answer.is_empty() {
+            return Err(self.not_in_software_mode());
+        }
+        FirmwareInfo::parse(feature_payload(&answer, id)?)?;
+        self.software_mode.set(true);
+        Ok(())
     }
 
     /// Sets the backlight (`0..=100`) of a display module.
+    ///
+    /// Needs software mode, like [`firmware`](Self::firmware). The level is
+    /// read back and sent again until the module reports it, because a
+    /// module ignores it for a moment after entering software mode. That
+    /// can take up to half a second, after which
+    /// [`Error::BrightnessNotApplied`] is returned.
     pub fn set_display_brightness(&self, level: u8) -> Result<()> {
-        self.transport
-            .send_feature(&display_brightness_report(self.kind, level)?)
+        let report = display_brightness_report(self.kind, level)?;
+        self.require_software_mode()?;
+        let mut found = level;
+        for attempt in 0..BRIGHTNESS_ATTEMPTS {
+            if attempt > 0 {
+                std::thread::sleep(BRIGHTNESS_RETRY_PAUSE);
+            }
+            self.transport.send_feature(&report)?;
+            found = self.display_brightness()?;
+            if found == level {
+                return Ok(());
+            }
+        }
+        Err(Error::BrightnessNotApplied {
+            module: self.kind.name(),
+            wanted: level,
+            found,
+        })
     }
 
     /// Checks that [`set_image`](Self::set_image) would accept `jpeg` for
@@ -260,12 +356,8 @@ impl Module {
 mod tests {
     use super::*;
     use crate::protocol::image::tests::fake_jpeg;
-    use crate::testing::{Mock, Sent};
+    use crate::testing::{DIAL_FIRMWARE, KEYS_FIRMWARE, Mock, Sent};
 
-    const DIAL_FIRMWARE: &[u8] = &[
-        0x48, 0x0f, 0x26, 0xa0, 0xd8, 0x0a, b'0', b'1', b'.', b'0', b'0', b'.', b'0', b'4', b'.',
-        b'0', b'0',
-    ];
     const DIAL_INFO: &[u8] = &[
         0x4b, 0x0b, 0x14, 0x00, 0x00, 0x00, 0xf0, 0x00, 0xf0, 0x00, 0x01, 0xf0, 0xf0,
     ];
@@ -299,8 +391,165 @@ mod tests {
     fn reads_firmware_and_display_info() {
         let module =
             Mock::with_features(&[DIAL_FIRMWARE, DIAL_INFO]).module(ModuleKind::DialDisplay);
+        module.set_software_mode(true).unwrap();
         assert_eq!(module.firmware().unwrap().version, "01.00.04.00");
         assert_eq!(module.display_info().unwrap().image_width, 240);
+
+        let base = Mock::with_features(&[&[0x2e, 0x07, 1, 2, 3, 4, b'2', b'.', b'0']]);
+        assert_eq!(
+            base.module(ModuleKind::Base).firmware().unwrap().version,
+            "2.0"
+        );
+    }
+
+    fn mode_report(command: u8, enabled: bool) -> Sent {
+        let mut report = [0u8; 32];
+        report[..3].copy_from_slice(&[0x03, command, u8::from(enabled)]);
+        Sent::Feature(report.to_vec())
+    }
+
+    #[test]
+    fn display_modules_are_not_asked_outside_software_mode() {
+        let mock = Mock::with_features(&[KEYS_FIRMWARE, &[0x3c, 0x01, 30], &[0x3b, 0x01, 0x14]]);
+        mock.0.lock().unwrap().standalone = true;
+        let keys = mock.module(ModuleKind::Keys15);
+        for result in [
+            keys.firmware().map(drop),
+            keys.display_brightness().map(drop),
+            keys.set_display_brightness(40),
+        ] {
+            assert!(matches!(result, Err(Error::NotInSoftwareMode { .. })));
+        }
+        // The device info is answered in both modes.
+        assert_eq!(keys.device_info().unwrap(), [0x14]);
+        assert_eq!(mock.sent(), [Sent::FeatureRead(0x3b)]);
+    }
+
+    #[test]
+    fn software_mode_is_sent_twice_and_confirmed() {
+        // The state a module is in after it was asked for its firmware in
+        // standalone mode: one write alone would be dropped by the read.
+        let mock = Mock::with_features(&[KEYS_FIRMWARE]);
+        {
+            let mut state = mock.0.lock().unwrap();
+            state.standalone = true;
+            state.lagging = true;
+        }
+        let keys = mock.module(ModuleKind::Keys15);
+        keys.set_software_mode(true).unwrap();
+        assert_eq!(
+            mock.sent(),
+            [
+                mode_report(0x3a, true),
+                mode_report(0x3a, true),
+                Sent::FeatureRead(0x38)
+            ]
+        );
+        assert_eq!(keys.firmware().unwrap().version, "02.00.01.00");
+
+        keys.set_software_mode(false).unwrap();
+        assert_eq!(mock.sent().last(), Some(&mode_report(0x3a, false)));
+        assert!(matches!(
+            keys.firmware(),
+            Err(Error::NotInSoftwareMode { .. })
+        ));
+    }
+
+    #[test]
+    fn a_module_that_does_not_switch_is_reported() {
+        let mock = Mock::with_features(&[DIAL_FIRMWARE]);
+        {
+            let mut state = mock.0.lock().unwrap();
+            state.standalone = true;
+            state.stuck = true;
+        }
+        let dial = mock.module(ModuleKind::DialDisplay);
+        assert!(matches!(
+            dial.set_software_mode(true),
+            Err(Error::NotInSoftwareMode { .. })
+        ));
+        // It is not asked for anything afterwards either.
+        let sent = mock.sent().len();
+        assert!(dial.firmware().is_err());
+        assert_eq!(mock.sent().len(), sent);
+
+        // The dial cannot be sent back, and the attempt changes nothing.
+        mock.0.lock().unwrap().stuck = false;
+        dial.set_software_mode(true).unwrap();
+        assert!(matches!(
+            dial.set_software_mode(false),
+            Err(Error::Unsupported { .. })
+        ));
+        assert_eq!(dial.firmware().unwrap().version, "01.00.04.00");
+        assert!(
+            mock.module(ModuleKind::Knobs3)
+                .set_software_mode(true)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_module_switched_back_elsewhere_is_noticed() {
+        let mock = Mock::with_features(&[KEYS_FIRMWARE, &[0x3c, 0x01, 30]]);
+        let keys = mock.module(ModuleKind::Keys15);
+        keys.set_software_mode(true).unwrap();
+        mock.0.lock().unwrap().standalone = true;
+        assert!(matches!(
+            keys.display_brightness(),
+            Err(Error::NotInSoftwareMode { .. })
+        ));
+        // Not asked a second time.
+        let asked = mock.sent().len();
+        assert!(keys.firmware().is_err());
+        assert_eq!(mock.sent().len(), asked);
+    }
+
+    #[test]
+    fn backlight_is_sent_until_the_module_reports_it() {
+        let mock = Mock::with_features(&[KEYS_FIRMWARE, &[0x3c, 0x01, 100]]);
+        mock.0.lock().unwrap().ignore_backlight = 2;
+        let keys = mock.module(ModuleKind::Keys15);
+        keys.set_software_mode(true).unwrap();
+        keys.set_display_brightness(40).unwrap();
+        let writes = mock
+            .sent()
+            .iter()
+            .filter(|s| matches!(s, Sent::Feature(r) if r[1] == 0x34))
+            .count();
+        assert_eq!(writes, 3);
+        assert_eq!(keys.display_brightness().unwrap(), 40);
+
+        // An invalid level is refused before anything is sent.
+        let sent = mock.sent().len();
+        assert!(matches!(
+            keys.set_display_brightness(101),
+            Err(Error::InvalidArgument(_))
+        ));
+        assert_eq!(mock.sent().len(), sent);
+
+        mock.0.lock().unwrap().ignore_backlight = usize::MAX;
+        assert!(matches!(
+            keys.set_display_brightness(70),
+            Err(Error::BrightnessNotApplied {
+                wanted: 70,
+                found: 40,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn an_answer_that_is_not_a_firmware_version_does_not_confirm() {
+        let mock = Mock::with_features(&[&[0x38, 0x01, 0x3c]]);
+        let keys = mock.module(ModuleKind::Keys15);
+        assert!(matches!(
+            keys.set_software_mode(true),
+            Err(Error::MalformedReport(_))
+        ));
+        assert!(matches!(
+            keys.firmware(),
+            Err(Error::NotInSoftwareMode { .. })
+        ));
     }
 
     #[test]
@@ -309,11 +558,12 @@ mod tests {
         assert_eq!(knobs.led_brightness().unwrap(), [100, 40, 100]);
         assert!(knobs.display_brightness().is_err());
 
-        let mock = Mock::with_features(&[&[0x3c, 0x01, 30]]);
+        let mock = Mock::with_features(&[KEYS_FIRMWARE, &[0x3c, 0x01, 30]]);
         let keys = mock.module(ModuleKind::Keys15);
+        keys.set_software_mode(true).unwrap();
         assert_eq!(keys.display_brightness().unwrap(), 30);
         assert!(keys.led_brightness().is_err());
-        assert_eq!(mock.sent(), [Sent::FeatureRead(0x3c)]);
+        assert_eq!(mock.sent().last(), Some(&Sent::FeatureRead(0x3c)));
 
         // A zone count that does not fit the module is an error, not a guess.
         let odd = Mock::with_features(&[&[0x32, 0x01, 50]]).module(ModuleKind::Knobs3);
@@ -352,16 +602,14 @@ mod tests {
 
     #[test]
     fn uploads_image_in_order() {
-        let mock = Mock::default();
+        let mock = Mock::with_features(&[KEYS_FIRMWARE]);
         let keys = mock.module(ModuleKind::Keys15);
         keys.set_software_mode(true).unwrap();
         keys.set_image(14, &fake_jpeg(72, 72, 700)).unwrap();
 
         let sent = mock.sent();
-        let mut mode = [0u8; 32];
-        mode[..3].copy_from_slice(&[0x03, 0x3a, 0x01]);
-        assert_eq!(sent[0], Sent::Feature(mode.to_vec()));
-        let outputs: Vec<&Vec<u8>> = sent[1..]
+        assert_eq!(sent[0], mode_report(0x3a, true));
+        let outputs: Vec<&Vec<u8>> = sent[3..]
             .iter()
             .map(|s| match s {
                 Sent::Output(report) => report,
@@ -421,28 +669,28 @@ mod tests {
         for kind in ModuleKind::ALL {
             let mock = Mock::with_features(&[
                 &[0x2e, 0x00],
-                &[0x38, 0x00],
-                &[0x48, 0x00],
+                KEYS_FIRMWARE,
+                DIAL_FIRMWARE,
                 &[0x31, 0x00],
                 &[0x3b, 0x00],
                 &[0x4b, 0x00],
                 &[0x33, 0x05, 0, 0, 0, 0, 0],
                 &[0x32, 0x00],
-                &[0x3c, 0x00],
-                &[0x4c, 0x00],
+                &[0x3c, 0x01, 50],
+                &[0x4c, 0x01, 50],
             ]);
             let mut module = mock.module(kind);
+            let _ = module.set_software_mode(true);
             let _ = module.firmware();
             let _ = module.device_info();
             let _ = module.led_brightness();
             let _ = module.display_brightness();
             let _ = module.display_info();
             let _ = module.fader_positions();
-            let _ = module.set_software_mode(true);
-            let _ = module.set_software_mode(false);
             for level in [0, 50, 100, 101, 255] {
                 let _ = module.set_display_brightness(level);
             }
+            let _ = module.set_software_mode(false);
             for target in [0, 14, 15, 255] {
                 let _ = module.set_image(target, &key);
                 let _ = module.set_image(target, &dial);

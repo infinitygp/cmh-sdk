@@ -28,6 +28,46 @@ pub(crate) struct State {
     pub read_timeouts: Vec<Duration>,
     /// Makes every operation fail the way a pulled module does.
     pub unplugged: bool,
+    /// A display module in standalone mode, as observed in experiment 0021:
+    /// the firmware and backlight reads come back empty and backlight
+    /// writes do nothing.
+    pub standalone: bool,
+    /// Set by an empty read: a feature write is then carried out only when
+    /// the next one arrives, and dropped by a read.
+    pub lagging: bool,
+    pub held: Option<Vec<u8>>,
+    /// Backlight writes still to be ignored, as right after the module
+    /// entered software mode.
+    pub ignore_backlight: usize,
+    /// Software mode commands have no effect.
+    pub stuck: bool,
+}
+
+/// Firmware reports for the mocks of the display modules.
+pub(crate) const KEYS_FIRMWARE: &[u8] = &[
+    0x38, 0x0f, 0x29, 0x63, 0x1c, 0x5d, b'0', b'2', b'.', b'0', b'0', b'.', b'0', b'1', b'.', b'0',
+    b'0',
+];
+pub(crate) const DIAL_FIRMWARE: &[u8] = &[
+    0x48, 0x0f, 0x26, 0xa0, 0xd8, 0x0a, b'0', b'1', b'.', b'0', b'0', b'.', b'0', b'4', b'.', b'0',
+    b'0',
+];
+
+impl State {
+    fn carry_out(&mut self, command: &[u8]) {
+        match (command[1], command[2]) {
+            (0x3a | 0x49, 1) if !self.stuck => self.standalone = false,
+            (0x3a, 0) => self.standalone = true,
+            (0x34 | 0x44, _) if self.standalone => {}
+            (0x34 | 0x44, _) if self.ignore_backlight > 0 => self.ignore_backlight -= 1,
+            (0x34 | 0x44, level) => {
+                let id = command[1] + 0x08;
+                self.features.retain(|f| f[0] != id);
+                self.features.push(vec![id, 0x01, level]);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// A scripted transport. Clones share their state, so a test can keep one
@@ -99,6 +139,15 @@ impl Transport for Mock {
         self.check()?;
         let mut state = self.0.lock().unwrap();
         state.sent.push(Sent::FeatureRead(buf[0]));
+        state.held = None;
+        if matches!(buf[0], 0x38 | 0x3c | 0x48 | 0x4c) {
+            // Seen ending with an answered firmware read; whether the
+            // device info read would do is not known.
+            state.lagging = state.standalone;
+            if state.standalone {
+                return Ok(0);
+            }
+        }
         let report = state
             .features
             .iter()
@@ -111,11 +160,16 @@ impl Transport for Mock {
 
     fn send_feature(&self, report: &[u8]) -> Result<()> {
         self.check()?;
-        self.0
-            .lock()
-            .unwrap()
-            .sent
-            .push(Sent::Feature(report.to_vec()));
+        let mut state = self.0.lock().unwrap();
+        state.sent.push(Sent::Feature(report.to_vec()));
+        let due = if state.lagging {
+            state.held.replace(report.to_vec())
+        } else {
+            Some(report.to_vec())
+        };
+        if let Some(command) = due {
+            state.carry_out(&command);
+        }
         Ok(())
     }
 

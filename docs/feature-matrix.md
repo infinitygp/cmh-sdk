@@ -13,9 +13,9 @@ images, brightness and hot-plug. On a natively installed Linux (experiment
 0020) enumeration, mount path, placement, firmware, input and hot-plug
 were verified for every module except the 5 Faders, together with LEDs on
 the Base and software mode, image upload and display brightness on the
-keys and the dial. There the keys and the dial did not respond to anything
-but the device info read for a while after power-up (open question 6); the
-rows below describe them once they respond. Firmware: Base
+keys and the dial. On the keys and the dial the firmware version, the
+display brightness, images and input need software mode (experiment 0021).
+Firmware: Base
 `02.00.04.00`, Keys `02.00.01.00`, Knobs `01.00.05.00`, Rollers
 `01.00.03.01`, Dial `01.00.04.00`, Faders `01.00.05.00`.
 
@@ -58,13 +58,13 @@ being seated (experiment 0011).
 | Tool | Purpose |
 |---|---|
 | `cmh list [--descriptors]` | modules, HID interface data, USB port chain, mount path and placement on the base, report descriptors |
-| `cmh info` | capabilities, firmware, device info, fader positions |
+| `cmh info [--software-mode]` | capabilities, firmware, device info, fader positions; the option switches the keys and the dial to software mode, without which they give neither firmware nor brightness |
 | `cmh monitor [--raw] [--heartbeat]` | live typed events, optional fixture-format hex, follows hot-plug |
 | `cmh replay <fixture>` | decode recorded reports without hardware |
 | `cmh software-mode on\|off` | software mode of a display module |
 | `cmh image [--key N] <file>` | show a PNG or JPEG on a key or on the dial |
 | `cmh led [--index N] [--mode M] [--color RRGGBB] [--brightness N]` | LED effect, colour, brightness |
-| `cmh brightness <0..100>` | backlight of the keys or the dial display |
+| `cmh brightness <0..100>` | backlight of the keys or the dial display; switches the module to software mode |
 | `tools/capture/*.ps1` | USBPcap capture daemon, client and fixture export |
 
 ## Open questions
@@ -81,13 +81,12 @@ being seated (experiment 0011).
    dial (experiment 0019). The SDK accepts only what was seen working.
 5. Behaviour on a clean exit of the vendor application (only a kill was
    observed).
-6. Linux: after power-up the 15 LCD Keys and the Dial Display returned
-   empty firmware and brightness reads and ignored software mode, images
-   and brightness, for three minutes in one case and for as long as it was
-   watched (17 minutes) in another (experiment 0020). Cause, what ends the
-   state and whether Windows shows it are unknown; see
-   [linux-udev.md](linux-udev.md#display-modules-after-power-up). The
-   5 Faders have not been tried on Linux.
+6. Display modules in standalone mode (experiment 0021): why a firmware
+   or brightness read there delays the feature writes that follow; why a
+   brightness level sent right after entering software mode can be lost;
+   whether a repeated software mode command disturbs a display that
+   already shows pictures. The behaviour was found on Linux and not
+   repeated on Windows. The 5 Faders have not been tried on Linux.
 7. The declared minimum Rust version (1.88) follows from the language
    features used; it has not been built with exactly that toolchain.
 8. Feature reports whose bytes are known but not understood (experiment

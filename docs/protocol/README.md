@@ -115,6 +115,10 @@ Read response layout (CONFIRMED, experiment 0003):
 The vendor application reads only the first three rows of this table; the
 rest was read once in experiment 0018.
 
+The display modules answer their firmware and brightness reports in
+software mode only, and must not be asked in standalone mode
+([keys15.md](keys15.md#feature-reads), experiment 0021).
+
 Firmware payload: 4 bytes of unknown meaning (constant per firmware build,
 possibly a checksum) followed by 11 ASCII characters `NN.NN.NN.NN`.
 

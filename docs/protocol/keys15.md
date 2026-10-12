@@ -35,6 +35,14 @@ SDK: `InputEvent::ButtonDown { index }` / `ButtonUp { index }`.
 |---|---|---|---|
 | `0x38` | firmware version | `38 0f 29 63 1c 5d "02.00.01.00"` | CONFIRMED |
 | `0x3b` | device info | `3b 0b 14 03 05 0f e0 01 10 01 01 48 48` | CONFIRMED (bytes), LIKELY (meaning) |
+| `0x3c` | backlight level | `3c 01 32` | CONFIRMED (experiment 0018) |
+
+The firmware version and the backlight level are answered in software mode
+only. In standalone mode the read succeeds with no data, and it must not be
+attempted: afterwards the module carries out a feature write only when the
+next feature write arrives, and drops it if a read comes first. Two
+`03 3a 01` in a row followed by a firmware read end that state. CONFIRMED
+(experiment 0021). The device info is answered in both modes.
 
 Device info payload (11 bytes):
 
@@ -67,9 +75,10 @@ images are uploaded.
 
 The vendor application sends `03 3a 00` right after opening the module and
 `03 3a 01` about five seconds later, immediately before the first image
-upload.
+upload. It reads the firmware version only after that.
 
-SDK: `Module::set_software_mode`.
+SDK: `Module::set_software_mode`. Enabling sends the command twice and
+confirms with a firmware read, see [feature reads](#feature-reads).
 
 ## Feature write: display brightness
 
@@ -87,7 +96,12 @@ SDK: `Module::set_software_mode`.
 In the vendor application brightness is not a setting but an action bound
 to a control; one detent changes both display modules by 5.
 
-SDK: `Module::set_display_brightness`.
+The level is ignored in standalone mode, and can be ignored during the
+first 0.3 s or so after the module entered software mode (experiment
+0021).
+
+SDK: `Module::set_display_brightness`, which reads the level back and
+sends it again until the module reports it.
 
 ## Output: key image
 

@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use cmh_sdk::fixture::{Direction, Fixture, Record};
 use cmh_sdk::protocol::InputMessage;
+use cmh_sdk::protocol::feature::display_brightness_report;
 use cmh_sdk::{
     Deck, DeckEvent, DeckOptions, Error, HidInterface, InputDecoder, LedMode, Manager, Module,
     ModuleKind, Placement, Result,
@@ -25,10 +26,16 @@ enum Command {
         #[arg(long)]
         descriptors: bool,
     },
-    /// Show capabilities, firmware version and device info (read only).
+    /// Show capabilities, firmware version and device info (read only
+    /// unless --software-mode is given).
     Info {
         #[command(flatten)]
         select: Select,
+        /// Switch the keys and the dial to software mode first. They report
+        /// their firmware version and backlight only in that mode; it
+        /// replaces what they show with a black screen.
+        #[arg(long)]
+        software_mode: bool,
     },
     /// Print decoded input events live; follows hot-plug.
     Monitor {
@@ -52,7 +59,9 @@ enum Command {
         select: Select,
         state: Switch,
     },
-    /// Set the backlight of the keys or of the dial display.
+    /// Set the backlight of the keys or of the dial display. Switches the
+    /// module to software mode, which the backlight needs; a module that
+    /// was in standalone mode goes black.
     Brightness {
         #[command(flatten)]
         select: Select,
@@ -180,7 +189,10 @@ impl Select {
 fn main() -> ExitCode {
     let result = match Cli::parse().command {
         Command::List { descriptors } => list(descriptors),
-        Command::Info { select } => info(&select),
+        Command::Info {
+            select,
+            software_mode,
+        } => info(&select, software_mode),
         Command::Monitor {
             select,
             raw,
@@ -296,7 +308,7 @@ fn list(descriptors: bool) -> Result<()> {
     Ok(())
 }
 
-fn info(select: &Select) -> Result<()> {
+fn info(select: &Select, software_mode: bool) -> Result<()> {
     let manager = connected()?;
     let interfaces = select.all(&manager);
     if interfaces.is_empty() {
@@ -320,12 +332,21 @@ fn info(select: &Select) -> Result<()> {
                 continue;
             }
         };
+        if caps.display.is_some()
+            && software_mode
+            && let Err(err) = module.set_software_mode(true)
+        {
+            println!("    software mode: <{err}>");
+        }
         match module.firmware() {
             Ok(fw) => println!(
                 "    firmware: {} (build tag {})",
                 fw.version,
                 hex(&fw.build_tag)
             ),
+            Err(Error::NotInSoftwareMode { .. }) if !software_mode => {
+                println!("    firmware: <not asked; needs --software-mode>")
+            }
             Err(err) => println!("    firmware: <{err}>"),
         }
         match module.device_info() {
@@ -356,6 +377,9 @@ fn info(select: &Select) -> Result<()> {
         if caps.display.is_some() {
             match module.display_brightness() {
                 Ok(level) => println!("    display brightness: {level}"),
+                Err(Error::NotInSoftwareMode { .. }) if !software_mode => {
+                    println!("    display brightness: <not asked; needs --software-mode>")
+                }
                 Err(err) => println!("    display brightness: <{err}>"),
             }
         }
@@ -472,6 +496,10 @@ fn software_mode(select: &Select, state: Switch) -> Result<()> {
 
 fn brightness(select: &Select, level: u8) -> Result<()> {
     let module = select.one(&connected()?)?;
+    // Validate before touching the module; the backlight can only be set
+    // in software mode.
+    display_brightness_report(module.kind(), level)?;
+    module.set_software_mode(true)?;
     module.set_display_brightness(level)?;
     println!("{}: display brightness {level}", module.kind());
     Ok(())

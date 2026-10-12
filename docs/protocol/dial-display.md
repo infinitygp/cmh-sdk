@@ -48,6 +48,13 @@ SDK: `InputEvent::ButtonDown { index: 0 }` / `ButtonUp { index: 0 }`.
 |---|---|---|---|
 | `0x48` | firmware version | `48 0f 26 a0 d8 0a "01.00.04.00"` | CONFIRMED |
 | `0x4b` | device info | `4b 0b 14 00 00 00 f0 00 f0 00 01 f0 f0` | CONFIRMED (bytes), LIKELY (meaning) |
+| `0x4c` | backlight level | `4c 01 32` | CONFIRMED (experiment 0018) |
+
+As on the keys, the firmware version and the backlight level are answered
+in software mode only, and reading them in standalone mode upsets the
+feature writes that follow; see
+[keys15.md](keys15.md#feature-reads). Seen on the dial after power-up
+(experiments 0020, 0021).
 
 The device info payload has the layout described in
 [keys15.md](keys15.md#feature-reads): no key grid, panel 240 x 240, image
@@ -59,7 +66,7 @@ The device info payload has the layout described in
 |---|---|
 | Report | `03 49 01`, 32 bytes, `SET_REPORT` feature |
 | Reply | none |
-| Confidence | CONFIRMED as sent by the vendor application; effect LIKELY |
+| Confidence | CONFIRMED as sent by the vendor application and for its effect (experiments 0017, 0020) |
 
 Sent by the vendor application right after opening the module and again
 before it starts drawing. `03 49 00` has never been observed, so the SDK
@@ -81,6 +88,9 @@ sends no input reports until software mode is enabled (experiment 0017).
 
 In the vendor application brightness is not a setting but an action bound
 to a control; one detent changes both display modules by 5.
+
+Needs software mode, as on the
+[keys](keys15.md#feature-write-display-brightness).
 
 SDK: `Module::set_display_brightness`.
 

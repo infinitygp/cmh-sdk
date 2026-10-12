@@ -126,9 +126,10 @@ pub enum DeckEvent {
         kind: ModuleKind,
         error: Error,
     },
-    /// A listed module could not be opened. Reported once; the deck keeps
-    /// retrying on every rescan. On Linux this can show up once right after
-    /// plugging, before udev has applied the access rule.
+    /// A listed module could not be opened or, for a display module, did
+    /// not confirm software mode. Reported once; the deck keeps retrying on
+    /// every rescan. On Linux this can show up once right after plugging,
+    /// before udev has applied the access rule.
     #[non_exhaustive]
     OpenFailed {
         id: ModuleId,
@@ -491,7 +492,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::testing::{Mock, Sent};
+    use crate::testing::{DIAL_FIRMWARE, KEYS_FIRMWARE, Mock, Sent};
 
     /// What the fake bus currently lists, and the transport behind each path.
     #[derive(Default)]
@@ -540,7 +541,13 @@ mod tests {
         /// Plugs a module in and returns the handle that scripts it. As on
         /// Windows, the path depends on the serial only.
         fn plug(&self, kind: ModuleKind, serial: &str, chain: &[u8]) -> Mock {
-            let mock = Mock::with_features(&[&[0x33, 0x05, 10, 20, 30, 40, 50]]);
+            let mock = Mock::with_features(&[
+                &[0x33, 0x05, 10, 20, 30, 40, 50],
+                KEYS_FIRMWARE,
+                DIAL_FIRMWARE,
+            ]);
+            // Display modules start in standalone mode.
+            mock.0.lock().unwrap().standalone = kind.capabilities().display.is_some();
             let path = CString::new(format!("path-{serial}")).unwrap();
             let mut bus = self.0.lock().unwrap();
             bus.listed
@@ -623,10 +630,18 @@ mod tests {
             ),
             (1, 1, 4, 3)
         );
-        // Display modules are switched to software mode, nothing else is sent.
+        // Display modules are switched to software mode, which is confirmed
+        // by a firmware read; nothing else is sent.
         let mut mode = vec![0u8; 32];
         mode[..3].copy_from_slice(&[0x03, 0x3a, 0x01]);
-        assert_eq!(keys.sent(), [Sent::Feature(mode)]);
+        assert_eq!(
+            keys.sent(),
+            [
+                Sent::Feature(mode.clone()),
+                Sent::Feature(mode),
+                Sent::FeatureRead(0x38)
+            ]
+        );
         assert_eq!(deck.modules().count(), 2);
         assert_eq!(
             deck.info(&ModuleId::from("K")).map(|i| i.kind),
@@ -658,8 +673,8 @@ mod tests {
                 })
                 .collect();
             let expected: &[(u8, u8, u8)] = match kind {
-                ModuleKind::Keys15 => &[(0x03, 0x3a, 0x01)],
-                ModuleKind::DialDisplay => &[(0x03, 0x49, 0x01)],
+                ModuleKind::Keys15 => &[(0x03, 0x3a, 0x01), (0x03, 0x3a, 0x01), (0, 0x38, 0)],
+                ModuleKind::DialDisplay => &[(0x03, 0x49, 0x01), (0x03, 0x49, 0x01), (0, 0x48, 0)],
                 ModuleKind::Faders5 => &[(0, 0x33, 0)],
                 _ => &[],
             };
@@ -838,7 +853,7 @@ mod tests {
         let keys = bus.plug(ModuleKind::Keys15, "K", &[1]);
         let mut deck = bus.deck(DeckOptions::default());
         poll(&mut deck);
-        assert_eq!(keys.sent().len(), 1);
+        assert_eq!(keys.sent().len(), 3);
 
         // The OS may fail to read a string descriptor on one enumeration, or
         // to work out the USB location.
@@ -848,7 +863,7 @@ mod tests {
             bus.listed[0].port_chain = None;
         }
         assert!(poll(&mut deck).is_empty());
-        assert_eq!(keys.sent().len(), 1);
+        assert_eq!(keys.sent().len(), 3);
         assert_eq!(deck.modules().count(), 1);
     }
 
@@ -864,6 +879,22 @@ mod tests {
         assert!(poll(&mut deck).is_empty());
         bus.0.lock().unwrap().refuse.clear();
         assert_eq!(summary(&poll(&mut deck)), ["+N"]);
+    }
+
+    #[test]
+    fn a_display_that_stays_in_standalone_mode_is_not_connected() {
+        let bus = FakeBackend::default();
+        let dial = bus.plug(ModuleKind::DialDisplay, "D", &[1]);
+        dial.0.lock().unwrap().stuck = true;
+        let mut deck = bus.deck(DeckOptions::default());
+
+        assert_eq!(summary(&poll(&mut deck)), ["!D"]);
+        assert!(poll(&mut deck).is_empty());
+        assert!(deck.module(&ModuleId::from("D")).is_none());
+        dial.0.lock().unwrap().stuck = false;
+        assert_eq!(summary(&poll(&mut deck)), ["+D"]);
+        let dial = deck.module(&ModuleId::from("D")).unwrap();
+        assert_eq!(dial.firmware().unwrap().version, "01.00.04.00");
     }
 
     #[test]

@@ -67,6 +67,7 @@ Examples: `crates/cmh-sdk/examples`.
 ```sh
 cargo run -p cmh-cli -- list                 # modules, mount path, placement
 cargo run -p cmh-cli -- info                 # firmware, capabilities
+cargo run -p cmh-cli -- info --software-mode # also for the keys and the dial
 cargo run -p cmh-cli -- monitor --raw        # live events, never writes
 cargo run -p cmh-cli -- replay fixtures/inputs/all-controls.txt
 cargo run -p cmh-cli -- image --module keys --key 3 picture.png
@@ -81,9 +82,12 @@ Rust 1.88 or newer. On Linux the `hidapi` backend needs a C compiler,
 rule, see [docs/linux-udev.md](docs/linux-udev.md).
 
 Verified on Windows 11. On a natively installed Linux every module except
-the 5 Faders has been exercised and mount paths match Windows; the 15 LCD
-Keys and the Dial Display did not respond for a while after power-up there,
-see [docs/linux-udev.md](docs/linux-udev.md#display-modules-after-power-up).
+the 5 Faders has been exercised and mount paths match Windows.
+
+The 15 LCD Keys and the Dial Display start in standalone mode after
+power-up. Input, pictures, the backlight and their firmware version need
+software mode, which `Deck` enables when they connect
+([details](docs/protocol/keys15.md#feature-write-software-mode)).
 
 The vendor application and this SDK can read the same modules side by side,
 but the application re-sends its own LED settings every minute and redraws

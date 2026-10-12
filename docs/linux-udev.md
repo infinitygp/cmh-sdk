@@ -5,8 +5,7 @@ the Base, 15 LCD Keys, 3 Knobs, 2 Rollers and Dial Display
 ([experiment 0020](experiments/0020-native-linux.md)), and before that on
 Arch Linux under WSL2 with the 3 Knobs and the 15 LCD Keys attached through
 usbipd-win ([experiment 0012](experiments/0012-linux-hardware.md)). The
-5 Faders have not been tried on Linux. One thing did not go as on Windows:
-see [Display modules after power-up](#display-modules-after-power-up).
+5 Faders have not been tried on Linux.
 
 ## Build dependencies
 
@@ -78,18 +77,18 @@ port chain in front of the mount path depends on the PC's own ports (it was
 | Dial Display | `1.4.3` | columns 5-6 rows 1-2 turned 0 |
 
 ```sh
-./target/release/cmh info
+./target/release/cmh info --software-mode
 ./target/release/cmh monitor --seconds 60
 ```
 
 Result from `info`: the firmware versions read on Windows (Base
 `02.00.04.00`, Keys `02.00.01.00`, Knobs `01.00.05.00`, Rollers
-`01.00.03.01`, Dial `01.00.04.00`), for the keys and the dial only once
-they had left the state described below. During `monitor`, with software
-mode enabled on the keys and the dial beforehand (`cmh software-mode on`):
-one roller step, one dial step and press and one key press each printed
-their line; unplugging the base and lifting the dial off it printed `left`,
-and both came back with mount path and placement.
+`01.00.03.01`, Dial `01.00.04.00`). The keys and the dial give theirs only
+in software mode, hence the option; see below. During `monitor`, with
+software mode enabled on the keys and the dial beforehand: one roller step,
+one dial step and press and one key press each printed their line;
+unplugging the base and lifting the dial off it printed `left`, and both
+came back with mount path and placement.
 
 ```sh
 ./target/release/cmh image --module dial some-picture.png
@@ -100,27 +99,21 @@ Result: the picture on the dial, the base lit steady green.
 
 ## Display modules after power-up
 
-In each case looked at on this host (as found at the start of the session,
-after a power cycle of the base, after reseating the dial) the 15 LCD Keys
-and the Dial Display answered the device info read but returned no data
-for the firmware and display brightness reads:
+No vendor application runs on Linux, so the 15 LCD Keys and the Dial
+Display are in standalone mode until something enables software mode. In
+standalone mode they play their animation, send no input, and do not
+answer the firmware and backlight reads. Asking for those anyway is what
+made the first run of this check look broken: such a read makes the module
+carry out later feature writes late or not at all
+([experiment 0021](experiments/0021-standalone-mode-reads.md)).
 
-```text
-firmware: <malformed report: feature report too short: 0 bytes>
-```
-
-In that state `cmh software-mode`, `cmh brightness` and `cmh image`
-finish without error and nothing changes on the module: it keeps playing
-its built-in animation and sends no input. Base, Knobs and Rollers were
-never affected.
-
-The state ended once, three minutes after a base power cycle, for both
-modules; everything then worked as on Windows. On the reseated dial it
-lasted for the 17 minutes it was watched, through waiting, repeated writes
-and a press of the dial. What ends it is unknown, and so is whether it is
-specific to Linux; it was not noticed on Windows. Before relying on a
-display module, read its firmware version: an empty answer means it is not
-listening yet.
+The SDK therefore puts those questions only after it enabled software mode
+itself, and enables it in a way that also works on a module left in that
+state by other software. `Deck` enables software mode when a display
+module connects; with `cmh`, `image`, `brightness`, `software-mode on` and
+`info --software-mode` do. Nothing of this is specific to Linux as far as
+is known; it was found here because the modules are never in software mode
+on their own.
 
 ## Known differences from Windows
 

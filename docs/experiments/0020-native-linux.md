@@ -34,6 +34,9 @@
    info` for the dial and the keys was then repeated every few seconds.
 
 Steps 3, 4 and 6 grew beyond the checklist because of what step 2 showed.
+[Experiment 0021](0021-standalone-mode-reads.md) found the cause: step 2
+itself. The cause of the state described below, and what ends it, are
+recorded there.
 
 ## Observations
 
