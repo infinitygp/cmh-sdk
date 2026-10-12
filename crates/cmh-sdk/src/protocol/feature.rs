@@ -36,6 +36,34 @@ pub const fn device_info_report_id(kind: ModuleKind) -> u8 {
 
 /// Feature report holding the current fader positions (5 Faders only).
 pub const FADER_POSITIONS_REPORT_ID: u8 = 0x33;
+/// Feature report holding the LED brightness of every zone (basic modules
+/// with LEDs): one byte per zone, `0..=100`.
+pub const LED_BRIGHTNESS_REPORT_ID: u8 = 0x32;
+
+/// Feature report holding the backlight level of a display module.
+pub const fn display_brightness_report_id(kind: ModuleKind) -> Option<u8> {
+    match kind.family() {
+        Family::Keys => Some(0x3c),
+        Family::Dial => Some(0x4c),
+        Family::Basic => None,
+    }
+}
+
+/// Checks a per-zone payload: `zones` bytes, none above `max`.
+pub fn parse_zone_values(payload: &[u8], zones: u8, max: u8) -> Result<Vec<u8>> {
+    if payload.len() != usize::from(zones) {
+        return Err(Error::MalformedReport(format!(
+            "expected {zones} zone value(s), got {}",
+            payload.len()
+        )));
+    }
+    match payload.iter().find(|v| **v > max) {
+        Some(bad) => Err(Error::MalformedReport(format!(
+            "zone value {bad} exceeds {max}"
+        ))),
+        None => Ok(payload.to_vec()),
+    }
+}
 
 /// Parses the payload of the fader position report: one byte per fader,
 /// `0..=100`.
@@ -313,6 +341,28 @@ mod tests {
             display_brightness_report(ModuleKind::DialDisplay, 100).unwrap()[..3],
             [0x03, 0x44, 0x64]
         );
+    }
+
+    #[test]
+    fn parses_zone_read_backs() {
+        // Read from the 3 Knobs and the base in experiment 0018.
+        let knobs = padded(&[0x32, 0x03, 0x64, 0x64, 0x64]);
+        let payload = feature_payload(&knobs, LED_BRIGHTNESS_REPORT_ID).unwrap();
+        assert_eq!(parse_zone_values(payload, 3, 100).unwrap(), [100, 100, 100]);
+        let keys = padded(&[0x3c, 0x01, 0x32]);
+        let id = display_brightness_report_id(ModuleKind::Keys15).unwrap();
+        assert_eq!(
+            parse_zone_values(feature_payload(&keys, id).unwrap(), 1, 100).unwrap(),
+            [50]
+        );
+
+        assert!(parse_zone_values(&[1, 2], 3, 100).is_err());
+        assert!(parse_zone_values(&[101], 1, 100).is_err());
+        assert_eq!(
+            display_brightness_report_id(ModuleKind::DialDisplay),
+            Some(0x4c)
+        );
+        assert_eq!(display_brightness_report_id(ModuleKind::Knobs3), None);
     }
 
     #[test]

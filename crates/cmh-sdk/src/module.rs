@@ -6,13 +6,14 @@ use crate::devices::ModuleKind;
 use crate::error::{Error, Result};
 use crate::input::{InputDecoder, InputEvent};
 use crate::protocol::feature::{
-    DisplayInfo, FADER_POSITIONS_REPORT_ID, FEATURE_REPORT_LEN, FirmwareInfo,
-    device_info_report_id, display_brightness_report, feature_payload, firmware_report_id,
-    parse_fader_positions, software_mode_report,
+    DISPLAY_BRIGHTNESS_MAX, DisplayInfo, FADER_POSITIONS_REPORT_ID, FEATURE_REPORT_LEN,
+    FirmwareInfo, LED_BRIGHTNESS_REPORT_ID, device_info_report_id, display_brightness_report,
+    display_brightness_report_id, feature_payload, firmware_report_id, parse_fader_positions,
+    parse_zone_values, software_mode_report,
 };
 use crate::protocol::frame::INPUT_REPORT_LEN;
 use crate::protocol::image::image_reports;
-use crate::protocol::led::{LedCommand, LedMode, led_report};
+use crate::protocol::led::{LED_BRIGHTNESS_MAX, LedCommand, LedMode, led_report};
 use crate::transport::Transport;
 
 /// Typed access to one open module.
@@ -156,6 +157,40 @@ impl Module {
             .write_output(&led_report(self.kind, index, command)?)
     }
 
+    fn led_zones(&self) -> Result<u8> {
+        match self.kind.capabilities().leds {
+            0 => Err(Error::Unsupported {
+                module: self.kind.name(),
+                capability: "LED control",
+            }),
+            zones => Ok(zones),
+        }
+    }
+
+    /// Reads the current brightness (`0..=100`) of every LED zone.
+    ///
+    /// The effect and the colour cannot be read back: the module's effect
+    /// report keeps its stored value whatever is set at run time.
+    pub fn led_brightness(&self) -> Result<Vec<u8>> {
+        let zones = self.led_zones()?;
+        let id = LED_BRIGHTNESS_REPORT_ID;
+        let report = self.read_feature(id)?;
+        parse_zone_values(feature_payload(&report, id)?, zones, LED_BRIGHTNESS_MAX)
+    }
+
+    /// Reads the current backlight level (`0..=100`) of a display module.
+    pub fn display_brightness(&self) -> Result<u8> {
+        let Some(id) = display_brightness_report_id(self.kind) else {
+            return Err(Error::Unsupported {
+                module: self.kind.name(),
+                capability: "display brightness",
+            });
+        };
+        let report = self.read_feature(id)?;
+        let values = parse_zone_values(feature_payload(&report, id)?, 1, DISPLAY_BRIGHTNESS_MAX)?;
+        Ok(values[0])
+    }
+
     /// Selects the effect of LED zone `index`.
     ///
     /// LED settings made through the SDK are not stored by the module.
@@ -269,6 +304,23 @@ mod tests {
     }
 
     #[test]
+    fn reads_back_led_and_brightness_state() {
+        let knobs = Mock::with_features(&[&[0x32, 0x03, 100, 40, 100]]).module(ModuleKind::Knobs3);
+        assert_eq!(knobs.led_brightness().unwrap(), [100, 40, 100]);
+        assert!(knobs.display_brightness().is_err());
+
+        let mock = Mock::with_features(&[&[0x3c, 0x01, 30]]);
+        let keys = mock.module(ModuleKind::Keys15);
+        assert_eq!(keys.display_brightness().unwrap(), 30);
+        assert!(keys.led_brightness().is_err());
+        assert_eq!(mock.sent(), [Sent::FeatureRead(0x3c)]);
+
+        // A zone count that does not fit the module is an error, not a guess.
+        let odd = Mock::with_features(&[&[0x32, 0x01, 50]]).module(ModuleKind::Knobs3);
+        assert!(odd.led_brightness().is_err());
+    }
+
+    #[test]
     fn short_feature_reads_are_rejected() {
         // Two bytes announcing eleven: the zeroed rest of the buffer must
         // not be taken for payload.
@@ -375,10 +427,15 @@ mod tests {
                 &[0x3b, 0x00],
                 &[0x4b, 0x00],
                 &[0x33, 0x05, 0, 0, 0, 0, 0],
+                &[0x32, 0x00],
+                &[0x3c, 0x00],
+                &[0x4c, 0x00],
             ]);
             let mut module = mock.module(kind);
             let _ = module.firmware();
             let _ = module.device_info();
+            let _ = module.led_brightness();
+            let _ = module.display_brightness();
             let _ = module.display_info();
             let _ = module.fader_positions();
             let _ = module.set_software_mode(true);
@@ -418,6 +475,7 @@ mod tests {
         let expected = std::collections::BTreeSet::from([
             (Base.name(), "get", 0x2e, 0),
             (Base.name(), "get", 0x31, 0),
+            (Base.name(), "get", 0x32, 0),
             (Base.name(), "out", 0x02, 0x2c),
             (Base.name(), "out", 0x02, 0x2d),
             (Base.name(), "out", 0x02, 0x2e),
@@ -426,9 +484,11 @@ mod tests {
             (Faders5.name(), "out", 0x02, 0x2e),
             (Faders5.name(), "get", 0x2e, 0),
             (Faders5.name(), "get", 0x31, 0),
+            (Faders5.name(), "get", 0x32, 0),
             (Faders5.name(), "get", 0x33, 0),
             (Knobs3.name(), "get", 0x2e, 0),
             (Knobs3.name(), "get", 0x31, 0),
+            (Knobs3.name(), "get", 0x32, 0),
             (Knobs3.name(), "out", 0x02, 0x2c),
             (Knobs3.name(), "out", 0x02, 0x2d),
             (Knobs3.name(), "out", 0x02, 0x2e),
@@ -436,11 +496,13 @@ mod tests {
             (Rollers2.name(), "get", 0x31, 0),
             (Keys15.name(), "get", 0x38, 0),
             (Keys15.name(), "get", 0x3b, 0),
+            (Keys15.name(), "get", 0x3c, 0),
             (Keys15.name(), "set", 0x03, 0x34),
             (Keys15.name(), "set", 0x03, 0x3a),
             (Keys15.name(), "out", 0x02, 0x36),
             (DialDisplay.name(), "get", 0x48, 0),
             (DialDisplay.name(), "get", 0x4b, 0),
+            (DialDisplay.name(), "get", 0x4c, 0),
             (DialDisplay.name(), "set", 0x03, 0x44),
             (DialDisplay.name(), "set", 0x03, 0x49),
             (DialDisplay.name(), "out", 0x02, 0x45),

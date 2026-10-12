@@ -347,6 +347,18 @@ fn info(select: &Select) -> Result<()> {
                 Err(err) => println!("    display: <{err}>"),
             }
         }
+        if caps.leds > 0 {
+            match module.led_brightness() {
+                Ok(levels) => println!("    LED brightness: {levels:?}"),
+                Err(err) => println!("    LED brightness: <{err}>"),
+            }
+        }
+        if caps.display.is_some() {
+            match module.display_brightness() {
+                Ok(level) => println!("    display brightness: {level}"),
+                Err(err) => println!("    display brightness: <{err}>"),
+            }
+        }
         if caps.faders > 0 {
             match module.fader_positions() {
                 Ok(positions) => println!("    fader positions: {positions:?}"),
