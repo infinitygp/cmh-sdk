@@ -8,7 +8,8 @@ Confidence: CONFIRMED for the pad table (every pad was measured, experiments
 0011, 0013, 0014). The geometric rule that turns a pad into covered cells is
 CONFIRMED for every module type: in many places for the 3 Knobs and the
 2 Rollers, and in two places each, one of them predicted beforehand, for the
-Dial Display, the 15 LCD Keys and the 5 Faders (experiment 0015).
+Dial Display, the 15 LCD Keys and the 5 Faders (experiment 0015). A third
+place for the 5 Faders, on a right-side pad, followed in experiment 0022.
 
 ## Mount path
 
@@ -62,6 +63,7 @@ contact side matches, and the pad's cell fixes the rest. Examples:
 | 15 LCD Keys | `2.2` | columns 1-4, rows 1-3 | 0 |
 | 3 Knobs | `2.2` | columns 3-4, rows 2-3 | 0 |
 | 5 Faders | `1.1.3` | columns 5-6, rows 1-4 | 90 |
+| 5 Faders | `1.4.1` | columns 5-6, rows 1-4 | 270 |
 | 3 Knobs | `1.1.3` | columns 5-6, rows 3-4 | 90 |
 | 2 Rollers | `1.1.4` | columns 1-4, row 4 | 0 |
 | 2 Rollers | `1.2.1` | column 1, rows 1-4 | 90 |

@@ -13,7 +13,8 @@ images, brightness and hot-plug. On a natively installed Linux (experiment
 0020) enumeration, mount path, placement, firmware, input and hot-plug
 were verified for every module except the 5 Faders, together with LEDs on
 the Base and software mode, image upload and display brightness on the
-keys and the dial. On the keys and the dial the firmware version, the
+keys and the dial; the 5 Faders followed without hot-plug (experiment
+0022). On the keys and the dial the firmware version, the
 display brightness, images and input need software mode (experiment 0021).
 Firmware: Base
 `02.00.04.00`, Keys `02.00.01.00`, Knobs `01.00.05.00`, Rollers
@@ -34,9 +35,9 @@ Firmware: Base
 | Image upload | n/a | done | n/a | n/a | done | n/a |
 | Display brightness, set and read back | n/a | done | n/a | n/a | done | n/a |
 | LED effect / colour / brightness | done | n/a | done | n/a | n/a | done |
-| LED brightness read back | done | n/a | done | n/a | n/a | open |
+| LED brightness read back | done | n/a | done | n/a | n/a | done |
 | Hot-plug (polling, identity by serial) | done | done | done | done | done | done |
-| Mount path (USB port path below the base) | done | done | done | done | done | open |
+| Mount path (USB port path below the base) | done | done | done | done | done | done |
 | Grid cells and rotation from the mount path | n/a | done | done | done | done | done |
 
 Hot-plug was verified by exchanging modules on a powered base (experiments
@@ -84,8 +85,7 @@ being seated (experiment 0011).
 6. Display modules in standalone mode (experiment 0021): why a firmware
    or brightness read there delays the feature writes that follow, and
    why a brightness level sent right after entering software mode can be
-   lost. The behaviour was found on Linux and not repeated on Windows. The
-   5 Faders have not been tried on Linux.
+   lost. The behaviour was found on Linux and not repeated on Windows.
 7. The declared minimum Rust version (1.88) follows from the language
    features used; it has not been built with exactly that toolchain.
 8. Feature reports whose bytes are known but not understood (experiment

@@ -56,6 +56,7 @@ only later movement produces events.
 |---|---|---|---|
 | `0x2e` | firmware version | `2e 0f 54 e2 61 51 "01.00.05.00"` | CONFIRMED |
 | `0x31` | device info | `31 14` + 20 zero bytes | CONFIRMED |
+| `0x32` | LED brightness per zone, `0..100` | `32 05 64 64 1e 64 3c` | CONFIRMED (experiment 0022) |
 
 ## Index order and direction
 
@@ -101,6 +102,5 @@ SDK: `Module::set_led_mode`, `set_led_color`, `set_led_brightness`.
 
 ## Not investigated
 
-Feature reports `0x2d` `0x2f` `0x30` `0x32` `0x34` `0x36` (by their position
-some of them probably read back the LED settings), other output commands.
-UNKNOWN.
+Feature reports `0x2d` `0x2f` `0x30` `0x34` `0x36` (what they hold on the
+other basic modules is in experiment 0018), other output commands. UNKNOWN.

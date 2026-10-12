@@ -5,7 +5,7 @@ the Base, 15 LCD Keys, 3 Knobs, 2 Rollers and Dial Display
 ([experiment 0020](experiments/0020-native-linux.md)), and before that on
 Arch Linux under WSL2 with the 3 Knobs and the 15 LCD Keys attached through
 usbipd-win ([experiment 0012](experiments/0012-linux-hardware.md)). The
-5 Faders have not been tried on Linux.
+5 Faders followed in [experiment 0022](experiments/0022-faders-linux.md).
 
 ## Build dependencies
 

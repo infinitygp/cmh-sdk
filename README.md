@@ -81,8 +81,8 @@ Rust 1.88 or newer. On Linux the `hidapi` backend needs a C compiler,
 `pkg-config` and the libudev headers; access to the devices needs a udev
 rule, see [docs/linux-udev.md](docs/linux-udev.md).
 
-Verified on Windows 11. On a natively installed Linux every module except
-the 5 Faders has been exercised and mount paths match Windows.
+Verified on Windows 11. On a natively installed Linux every module has
+been exercised and mount paths match Windows.
 
 The 15 LCD Keys and the Dial Display start in standalone mode after
 power-up. Input, pictures, the backlight and their firmware version need
