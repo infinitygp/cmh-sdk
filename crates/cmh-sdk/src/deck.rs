@@ -176,7 +176,10 @@ impl DeckOptions {
 
     /// Whether display modules are switched to software mode when they
     /// connect, as the vendor application does before drawing. Default:
-    /// `true`. With `false` the deck never writes to a module on its own.
+    /// `true`. With `false` the deck never writes to a module on its own;
+    /// the keys and the dial then send no input, and their firmware version
+    /// and backlight cannot be read until
+    /// [`Module::set_software_mode`] is called on them.
     pub fn software_mode(mut self, enabled: bool) -> Self {
         self.software_mode = enabled;
         self
@@ -383,9 +386,16 @@ impl Deck {
                 }
                 continue;
             }
-            let info = Self::describe(&listed, interface);
+            let mut info = Self::describe(&listed, interface);
             match self.open(interface) {
                 Ok((module, initial)) => {
+                    if self.options.software_mode && info.kind.capabilities().display.is_some() {
+                        match self.relisted(interface)? {
+                            Some(current) => info = current,
+                            // Gone again already; the next rescan sorts it out.
+                            None => continue,
+                        }
+                    }
                     self.failed.retain(|f| !manager::same_module(f, interface));
                     events.push(DeckEvent::Connected(info.clone()));
                     events.extend(initial.into_iter().map(|event| DeckEvent::Input {
@@ -412,6 +422,32 @@ impl Deck {
             }
         }
         Ok(())
+    }
+
+    /// Describes a display module from a fresh listing, taken after software
+    /// mode was confirmed.
+    ///
+    /// A display module that was asked for its firmware in standalone mode
+    /// answers string requests out of step until then, and Windows lists it
+    /// under a wrong serial for that long (experiment 0024). Its identity
+    /// is therefore taken from a listing made afterwards. `None` if the
+    /// module is no longer there or no longer wanted.
+    fn relisted(&mut self, opened: &HidInterface) -> Result<Option<ModuleInfo>> {
+        let listed = self.backend.scan()?;
+        // As in `manager::same_module`, but without the serial; a location
+        // that is unknown on either side is not held against the match.
+        let same_place = |i: &&HidInterface| {
+            let located = match (&i.port_chain, &opened.port_chain) {
+                (Some(x), Some(y)) => x == y && i.usb_bus == opened.usb_bus,
+                _ => true,
+            };
+            i.path == opened.path && i.product_id == opened.product_id && located
+        };
+        Ok(listed
+            .iter()
+            .find(same_place)
+            .filter(|i| self.options.filter.as_ref().is_none_or(|keep| keep(i)))
+            .map(|current| Self::describe(&listed, current)))
     }
 
     /// Opens and prepares a module; returns it with the events that describe
@@ -501,6 +537,9 @@ mod tests {
         transports: Vec<(CString, Mock)>,
         refuse: Vec<CString>,
         scans: usize,
+        /// Serial listed instead of the real one while the module behind
+        /// the path is in the state an empty read leaves (experiment 0024).
+        garbled: Vec<(CString, String)>,
     }
 
     #[derive(Clone, Default)]
@@ -510,7 +549,18 @@ mod tests {
         fn scan(&mut self) -> Result<Vec<HidInterface>> {
             let mut bus = self.0.lock().unwrap();
             bus.scans += 1;
-            Ok(bus.listed.clone())
+            let mut listed = bus.listed.clone();
+            for (path, wrong) in &bus.garbled {
+                let lagging = bus
+                    .transports
+                    .iter()
+                    .any(|(p, mock)| p == path && mock.0.lock().unwrap().lagging);
+                let entry = listed.iter_mut().find(|i| i.path == *path);
+                if let (true, Some(entry)) = (lagging, entry) {
+                    entry.serial = Some(wrong.clone());
+                }
+            }
+            Ok(listed)
         }
 
         fn open(&self, interface: &HidInterface) -> Result<Module> {
@@ -879,6 +929,49 @@ mod tests {
         assert!(poll(&mut deck).is_empty());
         bus.0.lock().unwrap().refuse.clear();
         assert_eq!(summary(&poll(&mut deck)), ["+N"]);
+    }
+
+    #[test]
+    fn a_display_listed_under_a_wrong_serial_connects_under_its_own() {
+        let bus = FakeBackend::default();
+        let keys = bus.plug(ModuleKind::Keys15, "K", &[1]);
+        // Other software read the firmware in standalone mode.
+        keys.0.lock().unwrap().lagging = true;
+        bus.0.lock().unwrap().garbled =
+            vec![(CString::new("path-K").unwrap(), "Key w/ IPS".to_owned())];
+        let mut deck = bus.deck(DeckOptions::default());
+
+        assert_eq!(summary(&poll(&mut deck)), ["+K"]);
+        assert!(poll(&mut deck).is_empty());
+        assert_eq!(deck.modules().count(), 1);
+        assert_eq!(keys.sent().len(), 3);
+
+        // A deck that leaves the mode alone cannot repair the module and
+        // reports what the system lists.
+        let other = FakeBackend::default();
+        let dial = other.plug(ModuleKind::DialDisplay, "D", &[1]);
+        dial.0.lock().unwrap().lagging = true;
+        other.0.lock().unwrap().garbled =
+            vec![(CString::new("path-D").unwrap(), "junk".to_owned())];
+        let mut deck = other.deck(DeckOptions::default().software_mode(false));
+        assert_eq!(summary(&poll(&mut deck)), ["+junk"]);
+    }
+
+    #[test]
+    fn a_display_that_is_not_relisted_is_connected_later() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let bus = FakeBackend::default();
+        bus.plug(ModuleKind::Keys15, "K", &[1]);
+        // Turned down on the second look only, the one after opening.
+        let looks = AtomicUsize::new(0);
+        let options =
+            DeckOptions::default().filter(move |_| looks.fetch_add(1, Ordering::Relaxed) != 1);
+        let mut deck = bus.deck(options);
+
+        assert!(poll(&mut deck).is_empty());
+        assert_eq!(deck.modules().count(), 0);
+        assert_eq!(summary(&poll(&mut deck)), ["+K"]);
     }
 
     #[test]

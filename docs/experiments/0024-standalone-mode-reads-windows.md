@@ -98,16 +98,40 @@ mode and the deck had sent its two writes and one read to as well).
   serial, product and manufacturer strings for it: CONFIRMED. A `Deck`
   that meets such a module connects it under the wrong serial, repairs it
   by enabling software mode, and on its next rescan reports that module as
-  disconnected and the real one as connected. The SDK no longer creates
-  the state itself, since it does not read in standalone mode; it can
-  still be left behind by other software, including builds of this SDK
-  from before `31bab05`.
+  disconnected and the real one as connected. The SDK no longer puts
+  these reads to a module it has not switched to software mode itself. It
+  can still meet the state: left behind by other software, including
+  builds of this SDK from before `31bab05`, or caused by its own next read
+  when another program switched the module back to standalone mode behind
+  an open handle.
 
 ## Changes in the SDK
 
-None.
+`Deck` lists the devices once more after it confirmed software mode on a
+display module, and takes the module's identity from that listing. The
+entry is matched by path, product ID and USB location, not by what the
+serial string should look like.
+
+## Check of the changed SDK
+
+Three times: old `F`, old `R`, `cmh list`, then the `events` example of the
+changed SDK for four seconds.
+
+- `cmh list` showed the keys as `serial=Key w/ IPS, 4x3<U+032A>MHKD` each
+  time.
+- The example printed each time exactly five lines, one per module, with
+  the keys as `connected 15 LCD Keys (MHKD15AA4312516xxxxx)`; no
+  `disconnected` line.
+- `cmh list` and `cmh info --software-mode` afterwards: the real serial,
+  firmware `02.00.01.00`, backlight 50.
+
+Conclusion: a `Deck` that meets a module in this state connects it once,
+under its real serial: CONFIRMED on Windows (three runs). The strings are
+right as soon as the firmware read has been answered.
 
 ## Not covered
 
 - The Dial Display in this state on Windows.
-- Avoiding the short-lived wrong identity in `Deck`.
+- A `Deck` created with `software_mode(false)`, or with a filter on the
+  serial: it does not repair the module and sees what Windows lists.
+  `Manager` and `cmh list` show the listing as it is.

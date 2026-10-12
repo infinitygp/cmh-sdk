@@ -86,9 +86,10 @@ being seated (experiment 0011).
    or brightness read there delays the feature writes that follow, and
    why a brightness level sent right after entering software mode can be
    lost. The keys behave the same on Windows (experiment 0024); there a
-   module in that state also reports wrong serial and product strings, so
-   a `Deck` first connects it under a wrong identity and corrects that on
-   its next rescan.
+   module in that state also reports wrong serial and product strings.
+   `Deck` reads the listing again after enabling software mode and
+   connects the module under its real serial; `Manager`, and a deck that
+   leaves the mode alone, show what the system lists.
 7. The declared minimum Rust version (1.88) follows from the language
    features used; it has not been built with exactly that toolchain.
 8. Feature reports whose bytes are known but not understood (experiment
