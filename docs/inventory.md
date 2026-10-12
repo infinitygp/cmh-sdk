@@ -91,7 +91,10 @@ are opaque byte arrays with usage `0xff00`.
 
 CONFIRMED from the report descriptors returned by the OS. Windows
 reconstructs descriptors from parsed data: the base's real descriptor is 211
-bytes long according to its HID descriptor, the reconstruction 199.
+bytes long according to its HID descriptor, the reconstruction 199. The
+original descriptors of the 3 Knobs and the 15 LCD Keys (194 bytes each)
+were read on Linux and show the same report IDs and sizes
+([experiment 0012](experiments/0012-linux-hardware.md)).
 
 USB descriptors of the base, taken from a USBPcap capture (experiment 0003):
 USB 1.1, `bMaxPacketSize0` 8, one configuration, bus powered, 100 mA, one

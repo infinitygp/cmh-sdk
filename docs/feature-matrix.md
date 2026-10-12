@@ -6,8 +6,11 @@ Legend:
 - **open**: not investigated or not implemented
 - **n/a**: does not apply to this module
 
-Last update: 2026-10-12. Platform: verified on Windows 11; on Linux the
-workspace builds and its tests pass, device access is untested. Firmware: Base
+Last update: 2026-10-12. Every "done" below was verified on Windows 11.
+On Linux (WSL2 through usbipd-win, experiment 0012) the 3 Knobs and the
+15 LCD Keys were verified for enumeration, feature reads, input, LEDs,
+images, brightness and hot-plug; the other modules and the mount path were
+not. Firmware: Base
 `02.00.04.00`, Keys `02.00.01.00`, Knobs `01.00.05.00`, Rollers
 `01.00.03.01`, Dial `01.00.04.00`, Faders `01.00.05.00`.
 
@@ -50,22 +53,22 @@ being seated (experiment 0011).
 
 ## Open questions
 
-1. Does LED zone index equal knob index (expected)?
-2. Does the dial display react to touch?
-3. Do the display modules report input when they are not in software mode,
+1. Does the dial display react to touch?
+2. Do the display modules report input when they are not in software mode,
    and what do they show then? What does `03 3a 00` change?
-4. What does the heartbeat status byte mean?
-5. Display brightness level 0. Do LED and brightness settings survive a
+3. What does the heartbeat status byte mean?
+4. Display brightness level 0. Do LED and brightness settings survive a
    power cycle?
-6. Position on the base: the SDK reports the mount path (experiment 0010).
+5. Position on the base: the SDK reports the mount path (experiment 0010).
    The path encodes position and orientation together; nine placements are
    known (experiment 0011) and the full table is still to be built.
-7. JPEG tolerance of the display modules: chroma subsampling, progressive
+6. JPEG tolerance of the display modules: chroma subsampling, progressive
    mode, maximum size. The SDK accepts only what was seen working.
-8. Behaviour on a clean exit of the vendor application.
-9. Two modules of the same model at once (logic is unit-tested, no second
+7. Behaviour on a clean exit of the vendor application.
+8. Two modules of the same model at once (logic is unit-tested, no second
    unit available).
-10. Linux: builds and passes its tests (experiment 0010), but has never
-    talked to a module; see [linux-udev.md](linux-udev.md).
-11. Threading model for consumers that read input and draw images at the
+9. Linux: mount path on a natively installed Linux (USB/IP hides the
+   topology); Base, Rollers, Dial and Faders have not been tried there;
+   see [linux-udev.md](linux-udev.md).
+10. Threading model for consumers that read input and draw images at the
     same time (currently: one owner thread with short read timeouts).

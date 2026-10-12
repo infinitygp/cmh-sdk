@@ -1,0 +1,9 @@
+# Input recorded on Linux (hidraw, WSL2 through usbipd-win): top-left key
+# pressed, single knob one detent clockwise, single knob pressed
+# (docs/experiments/0012-linux-hardware.md).
+# <seconds> <product id> <direction> <hex bytes, zero padding trimmed>
+   57.442 01fe in 01 34 11 00 02 0f 01
+   57.549 01fe in 01 34 11 00 02 0f
+   62.826 0202 in 01 2a 05 00 00 03 ff ff 01
+   64.739 0202 in 01 2a 05 00 03 03 00 00 01
+   64.961 0202 in 01 2a 05 00 03 03
