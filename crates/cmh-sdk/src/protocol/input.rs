@@ -19,10 +19,11 @@ use crate::devices::{Family, ModuleKind};
 use crate::error::{Error, Result};
 use crate::protocol::frame::InputFrame;
 
-/// Rotation step code: one detent in the negative direction.
-pub const STEP_NEGATIVE: u8 = 0x00;
-/// Rotation step code: one detent in the positive direction.
-pub const STEP_POSITIVE: u8 = 0x01;
+/// Rotation step code `00`: counter-clockwise on the knobs, away from the
+/// operator on the rollers, but clockwise on the dial.
+pub const STEP_CODE_0: u8 = 0x00;
+/// Rotation step code `01`: the opposite direction of [`STEP_CODE_0`].
+pub const STEP_CODE_1: u8 = 0x01;
 /// Rotation step code: this encoder did not move.
 pub const STEP_NONE: u8 = 0xff;
 /// Highest fader position.
@@ -33,7 +34,7 @@ pub const FADER_MAX: u8 = 100;
 pub enum InputMessage<'a> {
     /// Periodic report sent by the base while idle.
     Heartbeat { status: u8 },
-    /// Per-encoder step codes ([`STEP_NEGATIVE`], [`STEP_POSITIVE`], [`STEP_NONE`]).
+    /// Per-encoder step codes ([`STEP_CODE_0`], [`STEP_CODE_1`], [`STEP_NONE`]).
     EncoderSteps(&'a [u8]),
     /// Per-button states, `0` released and `1` pressed.
     ButtonStates(&'a [u8]),
@@ -70,6 +71,25 @@ const fn layout(kind: ModuleKind) -> Layout {
         buttons,
         faders,
     }
+}
+
+/// Signed step for a raw step code of `kind`, `None` when the encoder did
+/// not move.
+///
+/// `+1` is clockwise on the knobs and on the dial, and towards the operator
+/// on the rollers. The dial reports clockwise as code `00`, the knobs as
+/// code `01`.
+pub fn step_delta(kind: ModuleKind, code: u8) -> Option<i8> {
+    let delta = match code {
+        STEP_CODE_0 => -1,
+        STEP_CODE_1 => 1,
+        _ => return None,
+    };
+    Some(if kind == ModuleKind::DialDisplay {
+        -delta
+    } else {
+        delta
+    })
 }
 
 impl<'a> InputMessage<'a> {
@@ -113,9 +133,7 @@ impl<'a> InputMessage<'a> {
         if let Some((code, n)) = layout.encoders
             && code == *kind_code
         {
-            expect(n, |v| {
-                matches!(v, STEP_NEGATIVE | STEP_POSITIVE | STEP_NONE)
-            })?;
+            expect(n, |v| matches!(v, STEP_CODE_0 | STEP_CODE_1 | STEP_NONE))?;
             return Ok(InputMessage::EncoderSteps(values));
         }
         if let Some((code, n)) = layout.buttons
@@ -214,6 +232,17 @@ mod tests {
             .unwrap(),
             InputMessage::ButtonStates(&[1])
         );
+    }
+
+    #[test]
+    fn clockwise_is_positive_on_knobs_and_dial() {
+        // Experiment 0009: one detent clockwise was `01` on a knob and `00`
+        // on the dial.
+        assert_eq!(step_delta(ModuleKind::Knobs3, 0x01), Some(1));
+        assert_eq!(step_delta(ModuleKind::DialDisplay, 0x00), Some(1));
+        assert_eq!(step_delta(ModuleKind::DialDisplay, 0x01), Some(-1));
+        assert_eq!(step_delta(ModuleKind::Rollers2, 0x00), Some(-1));
+        assert_eq!(step_delta(ModuleKind::Knobs3, 0xff), None);
     }
 
     #[test]

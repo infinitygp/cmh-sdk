@@ -1,0 +1,8 @@
+# One detent clockwise on each rotary control, in this order: knob at the
+# apex of the triangle, left knob, right knob, dial
+# (docs/experiments/0009). Recorded through hidapi.
+# <seconds> <product id> <direction> <hex bytes, zero padding trimmed>
+  142.794 0202 in 01 2a 05 00 00 03 ff ff 01
+  145.942 0202 in 01 2a 05 00 00 03 01 ff ff
+  148.043 0202 in 01 2a 05 00 00 03 ff 01 ff
+  152.366 0206 in 01 44 03 00 03 01

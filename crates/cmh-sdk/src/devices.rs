@@ -107,9 +107,6 @@ impl ModuleKind {
     }
 
     /// Verified capabilities of this model.
-    ///
-    /// The LED rings of the 3 Knobs are not listed yet because their reports
-    /// have not been confirmed on hardware.
     pub const fn capabilities(self) -> Capabilities {
         const NONE: Capabilities = Capabilities {
             buttons: 0,
@@ -137,6 +134,7 @@ impl ModuleKind {
             ModuleKind::Knobs3 => Capabilities {
                 buttons: 3,
                 encoders: 3,
+                leds: 3,
                 ..NONE
             },
             ModuleKind::Rollers2 => Capabilities {

@@ -7,8 +7,8 @@ use crate::error::{Error, Result};
 use crate::input::{InputDecoder, InputEvent};
 use crate::protocol::feature::{
     DisplayInfo, FADER_POSITIONS_REPORT_ID, FEATURE_REPORT_LEN, FirmwareInfo,
-    device_info_report_id, feature_payload, firmware_report_id, parse_fader_positions,
-    software_mode_report,
+    device_info_report_id, display_brightness_report, feature_payload, firmware_report_id,
+    parse_fader_positions, software_mode_report,
 };
 use crate::protocol::frame::INPUT_REPORT_LEN;
 use crate::protocol::image::image_reports;
@@ -167,6 +167,12 @@ impl Module {
     pub fn set_software_mode(&self, enabled: bool) -> Result<()> {
         self.transport
             .send_feature(&software_mode_report(self.kind, enabled)?)
+    }
+
+    /// Sets the backlight (`0..=100`) of a display module.
+    pub fn set_display_brightness(&self, level: u8) -> Result<()> {
+        self.transport
+            .send_feature(&display_brightness_report(self.kind, level)?)
     }
 
     /// Checks that [`set_image`](Self::set_image) would accept `jpeg` for
@@ -431,6 +437,9 @@ mod tests {
             let _ = module.fader_positions();
             let _ = module.set_software_mode(true);
             let _ = module.set_software_mode(false);
+            for level in [0, 50, 100, 101, 255] {
+                let _ = module.set_display_brightness(level);
+            }
             for target in [0, 14, 15, 255] {
                 let _ = module.set_image(target, &key);
                 let _ = module.set_image(target, &dial);
@@ -472,14 +481,19 @@ mod tests {
             (Faders5.name(), "get", 0x33, 0),
             (Knobs3.name(), "get", 0x2e, 0),
             (Knobs3.name(), "get", 0x31, 0),
+            (Knobs3.name(), "out", 0x02, 0x2c),
+            (Knobs3.name(), "out", 0x02, 0x2d),
+            (Knobs3.name(), "out", 0x02, 0x2e),
             (Rollers2.name(), "get", 0x2e, 0),
             (Rollers2.name(), "get", 0x31, 0),
             (Keys15.name(), "get", 0x38, 0),
             (Keys15.name(), "get", 0x3b, 0),
+            (Keys15.name(), "set", 0x03, 0x34),
             (Keys15.name(), "set", 0x03, 0x3a),
             (Keys15.name(), "out", 0x02, 0x36),
             (DialDisplay.name(), "get", 0x48, 0),
             (DialDisplay.name(), "get", 0x4b, 0),
+            (DialDisplay.name(), "set", 0x03, 0x44),
             (DialDisplay.name(), "set", 0x03, 0x49),
             (DialDisplay.name(), "out", 0x02, 0x45),
         ]);

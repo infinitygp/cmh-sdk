@@ -8,8 +8,8 @@
 //! 02 2e <module> <index> <brightness 0..=100>       brightness
 //! ```
 //!
-//! `<module>` is `00` on the base and `01` on the 5 Faders; `<index>` selects
-//! one LED zone. The vendor application sets `<persist>` to `01` only when it
+//! `<module>` is `00` on the base, `01` on the 5 Faders and `02` on the
+//! 3 Knobs; `<index>` selects one LED zone. The vendor application sets `<persist>` to `01` only when it
 //! stores a setting in the module; this SDK always sends `00`.
 
 use crate::devices::ModuleKind;
@@ -92,7 +92,7 @@ pub enum LedCommand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct LedReport {
-    /// `00` base, `01` 5 Faders.
+    /// `00` base, `01` 5 Faders, `02` 3 Knobs.
     pub module_code: u8,
     pub index: u8,
     pub command: LedCommand,
@@ -106,6 +106,7 @@ const fn module_code(kind: ModuleKind) -> Option<u8> {
     match kind {
         ModuleKind::Base => Some(0x00),
         ModuleKind::Faders5 => Some(0x01),
+        ModuleKind::Knobs3 => Some(0x02),
         _ => None,
     }
 }
@@ -294,6 +295,10 @@ mod tests {
             [0x02, 0x2e, 0x00, 0x00, 0x32]
         );
         assert_eq!(
+            led_report(ModuleKind::Knobs3, 2, LedCommand::Brightness(50)).unwrap()[..5],
+            [0x02, 0x2e, 0x02, 0x02, 0x32]
+        );
+        assert_eq!(
             led_report(ModuleKind::Faders5, 0, LedCommand::Mode(LedMode::Rainbow)).unwrap()[..6],
             [0x02, 0x2c, 0x01, 0x00, 0x09, 0x00]
         );
@@ -302,9 +307,7 @@ mod tests {
     #[test]
     fn rejects_unverified_requests() {
         let on = LedCommand::Mode(LedMode::Static);
-        // LED control of the knobs has not been observed yet.
         for kind in [
-            ModuleKind::Knobs3,
             ModuleKind::Rollers2,
             ModuleKind::Keys15,
             ModuleKind::DialDisplay,
@@ -312,6 +315,7 @@ mod tests {
             assert!(led_report(kind, 0, on).is_err());
         }
         assert!(led_report(ModuleKind::Base, 1, on).is_err());
+        assert!(led_report(ModuleKind::Knobs3, 3, on).is_err());
         assert!(led_report(ModuleKind::Faders5, 5, on).is_err());
         assert!(led_report(ModuleKind::Faders5, 0, LedCommand::Brightness(101)).is_err());
     }

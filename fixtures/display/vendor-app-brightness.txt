@@ -1,0 +1,19 @@
+# Display brightness as set by the vendor application 1.0.0.113 when the
+# knob bound to its brightness action was turned three detents down and
+# three up (docs/experiments/0009). Only the first three bytes are kept:
+# the rest of the application's buffer holds stale image data.
+# <seconds> <product id> <direction> <hex bytes, zero padding trimmed>
+  137.817 0206 set 03 44 37
+  137.817 01fe set 03 34 37
+  160.386 0206 set 03 44 32
+  160.386 01fe set 03 34 32
+  160.850 0206 set 03 44 2d
+  160.851 01fe set 03 34 2d
+  161.659 0206 set 03 44 28
+  161.660 01fe set 03 34 28
+  164.677 0206 set 03 44 2d
+  164.678 01fe set 03 34 2d
+  165.329 0206 set 03 44 32
+  165.329 01fe set 03 34 32
+  166.184 0206 set 03 44 37
+  166.184 01fe set 03 34 37

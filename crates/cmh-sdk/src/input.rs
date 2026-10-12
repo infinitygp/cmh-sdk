@@ -2,7 +2,7 @@
 
 use crate::devices::ModuleKind;
 use crate::error::Result;
-use crate::protocol::input::{InputMessage, STEP_NEGATIVE, STEP_POSITIVE};
+use crate::protocol::input::{InputMessage, step_delta};
 
 /// Something the user did on a module. `index` counts controls from 0.
 ///
@@ -13,7 +13,8 @@ use crate::protocol::input::{InputMessage, STEP_NEGATIVE, STEP_POSITIVE};
 ///   the bottom.
 /// - 2 Rollers: index 0 is the right roller when the module sits along the
 ///   edge nearest the operator.
-/// - 3 Knobs: not pinned down yet; see `docs/protocol`.
+/// - 3 Knobs: with the single knob of the triangle pointing away from the
+///   operator, 0 is the left knob, 1 the right knob and 2 the single one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum InputEvent {
@@ -23,8 +24,8 @@ pub enum InputEvent {
     ButtonUp {
         index: u8,
     },
-    /// One detent of rotation. On the knobs `+1` is clockwise; on the
-    /// rollers `+1` is towards the operator (down).
+    /// One detent of rotation. `+1` is clockwise on the knobs and the dial,
+    /// and towards the operator (down) on the rollers.
     EncoderDelta {
         index: u8,
         delta: i8,
@@ -90,15 +91,12 @@ impl InputDecoder {
         match InputMessage::parse(self.kind, report)? {
             InputMessage::EncoderSteps(steps) => {
                 for (index, step) in steps.iter().enumerate() {
-                    let delta = match *step {
-                        STEP_NEGATIVE => -1,
-                        STEP_POSITIVE => 1,
-                        _ => continue,
-                    };
-                    events.push(InputEvent::EncoderDelta {
-                        index: index as u8,
-                        delta,
-                    });
+                    if let Some(delta) = step_delta(self.kind, *step) {
+                        events.push(InputEvent::EncoderDelta {
+                            index: index as u8,
+                            delta,
+                        });
+                    }
                 }
             }
             InputMessage::ButtonStates(states) => {
@@ -229,7 +227,8 @@ mod tests {
 
     #[test]
     fn dial_session() {
-        let expected = [turns(0, -1, 2), turns(0, 1, 3), clicks(0, 4)].concat();
+        // The dial was turned clockwise first (raw step code 00).
+        let expected = [turns(0, 1, 2), turns(0, -1, 3), clicks(0, 4)].concat();
         assert_eq!(of(&decode_session(), ModuleKind::DialDisplay), expected);
     }
 
@@ -322,5 +321,39 @@ mod tests {
                 let _ = decoder.decode(&report);
             }
         }
+    }
+
+    #[test]
+    fn one_detent_clockwise_per_control() {
+        // Experiment 0009: left knob, right knob, apex knob and dial, each
+        // turned one detent clockwise, in a known order.
+        let text = include_str!("../../../fixtures/inputs/clockwise-checks.txt");
+        let fixture = Fixture::parse(text).unwrap();
+        let mut knobs = InputDecoder::new(ModuleKind::Knobs3);
+        let mut dial = InputDecoder::new(ModuleKind::DialDisplay);
+        let mut events = Vec::new();
+        for record in fixture.records() {
+            let decoder = match record.kind {
+                ModuleKind::Knobs3 => &mut knobs,
+                ModuleKind::DialDisplay => &mut dial,
+                other => panic!("unexpected module {other}"),
+            };
+            events.extend(
+                decoder
+                    .decode(&record.report())
+                    .unwrap()
+                    .into_iter()
+                    .map(|e| (record.kind, e)),
+            );
+        }
+        assert_eq!(
+            events,
+            [
+                (ModuleKind::Knobs3, Turn { index: 2, delta: 1 }),
+                (ModuleKind::Knobs3, Turn { index: 0, delta: 1 }),
+                (ModuleKind::Knobs3, Turn { index: 1, delta: 1 }),
+                (ModuleKind::DialDisplay, Turn { index: 0, delta: 1 }),
+            ]
+        );
     }
 }

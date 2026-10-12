@@ -188,6 +188,37 @@ pub fn software_mode_report(kind: ModuleKind, enabled: bool) -> Result<[u8; FEAT
     Ok(report)
 }
 
+/// Highest display brightness.
+pub const DISPLAY_BRIGHTNESS_MAX: u8 = 100;
+
+/// Builds the feature write that sets the backlight of a display module,
+/// `0..=DISPLAY_BRIGHTNESS_MAX`.
+///
+/// The vendor application has been seen sending 40..=55 in steps of 5; the
+/// rest of the range is assumed from the LED brightness scale.
+pub fn display_brightness_report(kind: ModuleKind, level: u8) -> Result<[u8; FEATURE_REPORT_LEN]> {
+    let command = match kind.family() {
+        Family::Keys => 0x34,
+        Family::Dial => 0x44,
+        Family::Basic => {
+            return Err(Error::Unsupported {
+                module: kind.name(),
+                capability: "display brightness",
+            });
+        }
+    };
+    if level > DISPLAY_BRIGHTNESS_MAX {
+        return Err(Error::InvalidArgument(format!(
+            "display brightness {level} exceeds {DISPLAY_BRIGHTNESS_MAX}"
+        )));
+    }
+    let mut report = [0u8; FEATURE_REPORT_LEN];
+    report[0] = COMMAND_REPORT_ID;
+    report[1] = command;
+    report[2] = level;
+    Ok(report)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,6 +285,34 @@ mod tests {
         );
         assert!(parse_fader_positions(&[0, 0, 0, 0]).is_err());
         assert!(parse_fader_positions(&[0, 0, 0, 0, 101]).is_err());
+    }
+
+    #[test]
+    fn display_brightness_matches_capture() {
+        use crate::fixture::{Direction, Fixture};
+
+        // Experiment 0009: one knob detent changes the level by 5.
+        let text = include_str!("../../../../fixtures/display/vendor-app-brightness.txt");
+        let fixture = Fixture::parse(text).unwrap();
+        let mut levels = Vec::new();
+        for record in fixture.records() {
+            assert_eq!(record.direction, Direction::Set);
+            let captured = record.report();
+            let ours = display_brightness_report(record.kind, captured[2]).unwrap();
+            assert_eq!(ours[..3], captured[..3]);
+            assert!(ours[3..].iter().all(|b| *b == 0));
+            if record.kind == ModuleKind::Keys15 {
+                levels.push(captured[2]);
+            }
+        }
+        assert_eq!(levels, [55, 50, 45, 40, 45, 50, 55]);
+
+        assert!(display_brightness_report(ModuleKind::Keys15, 101).is_err());
+        assert!(display_brightness_report(ModuleKind::Knobs3, 50).is_err());
+        assert_eq!(
+            display_brightness_report(ModuleKind::DialDisplay, 100).unwrap()[..3],
+            [0x03, 0x44, 0x64]
+        );
     }
 
     #[test]

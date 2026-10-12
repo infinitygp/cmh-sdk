@@ -50,6 +50,13 @@ enum Command {
         select: Select,
         state: Switch,
     },
+    /// Set the backlight of the keys or of the dial display.
+    Brightness {
+        #[command(flatten)]
+        select: Select,
+        /// 0..100.
+        level: u8,
+    },
     /// Set LED effect, colour and brightness (not stored by the module).
     Led {
         #[command(flatten)]
@@ -180,6 +187,7 @@ fn main() -> ExitCode {
         Command::Replay { file } => replay(&file),
         Command::SoftwareMode { select, state } => software_mode(&select, state),
         Command::Image { select, key, file } => image(&select, key, &file),
+        Command::Brightness { select, level } => brightness(&select, level),
         Command::Led {
             select,
             index,
@@ -489,6 +497,13 @@ fn software_mode(select: &Select, state: Switch) -> Result<()> {
         module.kind(),
         if enabled { "on" } else { "off" }
     );
+    Ok(())
+}
+
+fn brightness(select: &Select, level: u8) -> Result<()> {
+    let module = select.one(&connected()?)?;
+    module.set_display_brightness(level)?;
+    println!("{}: display brightness {level}", module.kind());
     Ok(())
 }
 
