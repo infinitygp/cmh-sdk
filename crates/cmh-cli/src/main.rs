@@ -1,4 +1,3 @@
-use std::ffi::CString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -7,7 +6,8 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use cmh_sdk::fixture::{Direction, Fixture, Record};
 use cmh_sdk::protocol::InputMessage;
 use cmh_sdk::{
-    Error, HidInterface, InputDecoder, LedMode, Manager, Module, ModuleKind, Placement, Result,
+    Deck, DeckEvent, DeckOptions, Error, HidInterface, InputDecoder, LedMode, Manager, Module,
+    ModuleKind, Placement, Result,
 };
 
 #[derive(Parser)]
@@ -82,7 +82,8 @@ enum Command {
         /// Key index 0..14 on the 15 LCD Keys.
         #[arg(long, default_value_t = 0)]
         key: u8,
-        /// Baseline 4:4:4 JPEG of the exact display size (72x72 or 240x240).
+        /// PNG or JPEG. A JPEG that already has the exact format the module
+        /// needs is sent unchanged; anything else is converted.
         file: PathBuf,
     },
 }
@@ -185,7 +186,7 @@ fn main() -> ExitCode {
             raw,
             heartbeat,
             seconds,
-        } => monitor(&select, raw, heartbeat, seconds.map(Duration::from_secs)),
+        } => monitor(select, raw, heartbeat, seconds.map(Duration::from_secs)),
         Command::Replay { file } => replay(&file),
         Command::SoftwareMode { select, state } => software_mode(&select, state),
         Command::Image { select, key, file } => image(&select, key, &file),
@@ -356,137 +357,49 @@ fn info(select: &Select) -> Result<()> {
     Ok(())
 }
 
-/// Identity of a module for as long as it stays plugged in.
-type Key = (Option<String>, CString);
-
-fn key(interface: &HidInterface) -> Key {
-    (interface.serial.clone(), interface.path.clone())
-}
-
-/// Decides which open handles to close and which listed modules to open so
-/// that the open set matches what is currently connected. Modules that
-/// failed to open or were dropped after an I/O error are simply absent from
-/// `open` and therefore retried on every pass.
-fn reconcile(open: &[Key], listed: &[Key]) -> (Vec<Key>, Vec<Key>) {
-    let close = open
-        .iter()
-        .filter(|k| !listed.contains(k))
-        .cloned()
-        .collect();
-    let to_open = listed
-        .iter()
-        .filter(|k| !open.contains(k))
-        .cloned()
-        .collect();
-    (close, to_open)
-}
-
-fn monitor(select: &Select, raw: bool, heartbeat: bool, limit: Option<Duration>) -> Result<()> {
-    const RESCAN: Duration = Duration::from_secs(1);
-
-    let mut manager = Manager::new()?;
-    let mut open: Vec<(HidInterface, Module)> = Vec::new();
-    // Modules whose open error was already reported, to avoid repeating it
-    // on every rescan.
-    let mut complained: Vec<Key> = Vec::new();
+fn monitor(select: Select, raw: bool, heartbeat: bool, limit: Option<Duration>) -> Result<()> {
+    // Diagnostics stay passive: nothing is written to a module.
+    let options = DeckOptions::default()
+        .software_mode(false)
+        .raw_reports(raw)
+        .filter(move |interface| select.matches(interface));
+    let mut deck = Deck::with_options(options)?;
     let start = Instant::now();
-    let mut last_scan: Option<Instant> = None;
     let stamp = |start: Instant| start.elapsed().as_secs_f64();
 
     while limit.is_none_or(|l| start.elapsed() < l) {
-        if last_scan.is_none_or(|t| t.elapsed() >= RESCAN) {
-            last_scan = Some(Instant::now());
-            manager.refresh()?;
-            let listed = select.all(&manager);
-            let listed_keys: Vec<Key> = listed.iter().map(key).collect();
-            let open_keys: Vec<Key> = open.iter().map(|(i, _)| key(i)).collect();
-            let (close, to_open) = reconcile(&open_keys, &listed_keys);
-
-            open.retain(|(interface, _)| {
-                let gone = close.contains(&key(interface));
-                if gone {
-                    println!("# {:9.3} left    {}", stamp(start), label(interface));
-                }
-                !gone
-            });
-            complained.retain(|k| listed_keys.contains(k));
-            for interface in listed.iter().filter(|i| to_open.contains(&key(i))) {
-                match manager.open_interface(interface) {
-                    Ok(mut module) => {
-                        println!(
-                            "# {:9.3} arrived {} mount_path={} placement: {}",
-                            stamp(start),
-                            label(interface),
-                            dotted(manager.mount_path(interface)),
-                            cells(manager.placement(interface))
-                        );
-                        if interface.kind.capabilities().faders > 0 {
-                            match module.fader_positions() {
-                                Ok(p) => println!("# {:9.3} fader positions {p:?}", stamp(start)),
-                                Err(err) => {
-                                    println!("# {:9.3} fader positions: {err}", stamp(start))
-                                }
-                            }
-                        }
-                        complained.retain(|k| *k != key(interface));
-                        open.push((interface.clone(), module));
-                    }
-                    Err(err) => {
-                        if !complained.contains(&key(interface)) {
-                            eprintln!("cannot open {}: {err} (will retry)", label(interface));
-                            complained.push(key(interface));
-                        }
-                    }
-                }
-            }
-        }
-        if open.is_empty() {
-            std::thread::sleep(Duration::from_millis(100));
-            continue;
-        }
-        let mut failed = None;
-        for (i, (interface, module)) in open.iter_mut().enumerate() {
-            let report = match module.read_raw(Duration::from_millis(5)) {
-                Ok(Some(report)) => report,
-                Ok(None) => continue,
-                Err(err) => {
-                    println!(
-                        "# {:9.3} lost    {} ({err})",
-                        stamp(start),
-                        label(interface)
-                    );
-                    failed = Some(i);
-                    break;
-                }
-            };
-            let is_heartbeat = matches!(
-                InputMessage::parse(interface.kind, &report),
-                Ok(InputMessage::Heartbeat { .. })
-            );
-            if raw && (heartbeat || !is_heartbeat) {
-                let record = Record::new(stamp(start), interface.kind, Direction::In, &report);
-                println!("{record}");
-            }
-            match module.decode(&report) {
-                Ok(events) => {
-                    for event in events {
-                        println!(
-                            "# {:9.3} {:<12} {event:?}",
-                            stamp(start),
-                            interface.kind.name()
-                        );
-                    }
-                }
-                Err(err) => println!(
-                    "# {:9.3} {:<12} undecodable: {err}",
-                    stamp(start),
-                    interface.kind.name()
+        for event in deck.poll(Duration::from_millis(100))? {
+            let t = stamp(start);
+            match event {
+                DeckEvent::Connected(info) => println!(
+                    "# {t:9.3} arrived {} mount_path={} placement: {}",
+                    label(&info.interface),
+                    dotted(info.mount_path),
+                    cells(info.placement)
                 ),
+                DeckEvent::Disconnected(info) => {
+                    println!("# {t:9.3} left    {}", label(&info.interface))
+                }
+                DeckEvent::RawInput { kind, report, .. } => {
+                    let is_heartbeat = matches!(
+                        InputMessage::parse(kind, &report),
+                        Ok(InputMessage::Heartbeat { .. })
+                    );
+                    if heartbeat || !is_heartbeat {
+                        println!("{}", Record::new(t, kind, Direction::In, &report));
+                    }
+                }
+                DeckEvent::Input { kind, event, .. } => {
+                    println!("# {t:9.3} {:<12} {event:?}", kind.name())
+                }
+                DeckEvent::Undecodable { kind, error, .. } => {
+                    println!("# {t:9.3} {:<12} undecodable: {error}", kind.name())
+                }
+                DeckEvent::OpenFailed { interface, error } => {
+                    eprintln!("cannot open {}: {error} (will retry)", label(&interface))
+                }
+                _ => {}
             }
-        }
-        if let Some(i) = failed {
-            // The next rescan reopens it if it is still (or again) listed.
-            open.remove(i);
         }
     }
     Ok(())
@@ -585,11 +498,22 @@ fn led(
 }
 
 fn image(select: &Select, key: u8, file: &PathBuf) -> Result<()> {
-    let jpeg = std::fs::read(file)
+    let data = std::fs::read(file)
         .map_err(|err| Error::InvalidArgument(format!("{}: {err}", file.display())))?;
     let module = select.one(&connected()?)?;
-    // Validate before touching the module so that a rejected file leaves it
-    // exactly as it was.
+    let Some(display) = module.kind().capabilities().display else {
+        return Err(Error::Unsupported {
+            module: module.kind().name(),
+            capability: "images",
+        });
+    };
+    let jpeg = if module.check_image(key, &data).is_ok() {
+        data
+    } else {
+        cmh_sdk::picture::convert(display, &data)?
+    };
+    // Validate before touching the module so that a rejected request leaves
+    // it exactly as it was.
     module.check_image(key, &jpeg)?;
     module.set_software_mode(true)?;
     module.set_image(key, &jpeg)?;
@@ -599,40 +523,4 @@ fn image(select: &Select, key: u8, file: &PathBuf) -> Result<()> {
         jpeg.len()
     );
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn k(serial: &str, path: &str) -> Key {
-        (Some(serial.to_owned()), CString::new(path).unwrap())
-    }
-
-    #[test]
-    fn opens_new_and_closes_departed_modules() {
-        let open = [k("A", "p1"), k("B", "p2")];
-        let listed = [k("B", "p2"), k("C", "p3")];
-        assert_eq!(
-            reconcile(&open, &listed),
-            (vec![k("A", "p1")], vec![k("C", "p3")])
-        );
-    }
-
-    #[test]
-    fn retries_modules_that_are_listed_but_not_open() {
-        // A failed open or an I/O error leaves the module listed but absent
-        // from the open set; every pass must ask for it again.
-        let listed = [k("A", "p1")];
-        assert_eq!(reconcile(&[], &listed), (vec![], vec![k("A", "p1")]));
-        assert_eq!(reconcile(&listed, &listed), (vec![], vec![]));
-    }
-
-    #[test]
-    fn a_module_under_a_new_path_is_reopened() {
-        assert_eq!(
-            reconcile(&[k("A", "p1")], &[k("A", "p9")]),
-            (vec![k("A", "p1")], vec![k("A", "p9")])
-        );
-    }
 }

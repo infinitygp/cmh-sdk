@@ -181,6 +181,19 @@ impl Module {
         image_reports(self.kind, target, jpeg).map(drop)
     }
 
+    /// Converts a PNG or JPEG file to the display's format and shows it on
+    /// image `target`. The picture is stretched to the display size.
+    #[cfg(feature = "image")]
+    pub fn set_picture(&self, target: u8, file: &[u8]) -> Result<()> {
+        let Some(display) = self.kind.capabilities().display else {
+            return Err(Error::Unsupported {
+                module: self.kind.name(),
+                capability: "images",
+            });
+        };
+        self.set_image(target, &crate::picture::convert(display, file)?)
+    }
+
     /// Shows a JPEG on image `target` (key index on the 15 LCD Keys, `0` on
     /// the Dial Display).
     ///
@@ -197,102 +210,9 @@ impl Module {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
-    use std::sync::{Arc, Mutex};
-
     use super::*;
     use crate::protocol::image::tests::fake_jpeg;
-
-    /// Everything a module was asked to do, in order.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    enum Sent {
-        Output(Vec<u8>),
-        Feature(Vec<u8>),
-        FeatureRead(u8),
-    }
-
-    #[derive(Default)]
-    struct State {
-        inputs: VecDeque<Vec<u8>>,
-        features: Vec<Vec<u8>>,
-        sent: Vec<Sent>,
-        fail_output_after: Option<usize>,
-    }
-
-    #[derive(Clone, Default)]
-    struct Mock(Arc<Mutex<State>>);
-
-    impl Mock {
-        fn with_features(features: &[&[u8]]) -> Self {
-            let mock = Mock::default();
-            mock.0.lock().unwrap().features = features.iter().map(|f| f.to_vec()).collect();
-            mock
-        }
-
-        fn push_input(&self, report: &[u8]) {
-            self.0.lock().unwrap().inputs.push_back(report.to_vec());
-        }
-
-        fn sent(&self) -> Vec<Sent> {
-            self.0.lock().unwrap().sent.clone()
-        }
-
-        fn module(&self, kind: ModuleKind) -> Module {
-            Module::new(kind, None, Box::new(self.clone()))
-        }
-    }
-
-    impl Transport for Mock {
-        fn read_input(&self, buf: &mut [u8], _timeout: Duration) -> Result<usize> {
-            match self.0.lock().unwrap().inputs.pop_front() {
-                Some(report) => {
-                    buf[..report.len()].copy_from_slice(&report);
-                    Ok(INPUT_REPORT_LEN)
-                }
-                None => Ok(0),
-            }
-        }
-
-        fn write_output(&self, report: &[u8]) -> Result<()> {
-            let mut state = self.0.lock().unwrap();
-            let outputs = state
-                .sent
-                .iter()
-                .filter(|s| matches!(s, Sent::Output(_)))
-                .count();
-            if state.fail_output_after == Some(outputs) {
-                return Err(Error::Disconnected("mock".to_owned()));
-            }
-            state.sent.push(Sent::Output(report.to_vec()));
-            Ok(())
-        }
-
-        fn get_feature(&self, buf: &mut [u8]) -> Result<usize> {
-            let mut state = self.0.lock().unwrap();
-            state.sent.push(Sent::FeatureRead(buf[0]));
-            let report = state
-                .features
-                .iter()
-                .find(|f| f[0] == buf[0])
-                .expect("unexpected feature read")
-                .clone();
-            buf[..report.len()].copy_from_slice(&report);
-            Ok(report.len())
-        }
-
-        fn send_feature(&self, report: &[u8]) -> Result<()> {
-            self.0
-                .lock()
-                .unwrap()
-                .sent
-                .push(Sent::Feature(report.to_vec()));
-            Ok(())
-        }
-
-        fn report_descriptor(&self) -> Result<Vec<u8>> {
-            Ok(Vec::new())
-        }
-    }
+    use crate::testing::{Mock, Sent};
 
     const DIAL_FIRMWARE: &[u8] = &[
         0x48, 0x0f, 0x26, 0xa0, 0xd8, 0x0a, b'0', b'1', b'.', b'0', b'0', b'.', b'0', b'4', b'.',

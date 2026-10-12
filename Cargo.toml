@@ -5,14 +5,15 @@ members = ["crates/cmh-sdk", "crates/cmh-cli"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 publish = false
 
 [workspace.dependencies]
-cmh-sdk = { path = "crates/cmh-sdk" }
+cmh-sdk = { path = "crates/cmh-sdk", features = ["image"] }
 hidapi = "2.6"
 thiserror = "2"
 clap = { version = "4.5", features = ["derive"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 windows-sys = { version = "0.61", features = [
     "Win32_Devices_DeviceAndDriverInstallation",
     "Win32_Devices_Properties",

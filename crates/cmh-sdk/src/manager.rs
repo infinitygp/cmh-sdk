@@ -19,9 +19,12 @@ pub enum HotplugEvent {
 
 /// Tracks the set of connected modules by polling the HID device list.
 ///
+/// This is the low-level view: listing, hot-plug differences and opening
+/// single modules. [`Deck`](crate::Deck) builds the usual event loop on top.
+///
 /// The USB serial number identifies a module wherever it is mounted. A
-/// module that re-enumerates under a different path is reported as left and
-/// arrived again.
+/// module that re-enumerates under a different path or on a different port
+/// is reported as left and arrived again.
 ///
 /// Polling cannot see a module that is pulled and re-seated between two
 /// refreshes. The authoritative signal for a dead handle is
@@ -96,7 +99,7 @@ impl Manager {
     }
 }
 
-fn mount_path(known: &[HidInterface], interface: &HidInterface) -> Option<Vec<u8>> {
+pub(crate) fn mount_path(known: &[HidInterface], interface: &HidInterface) -> Option<Vec<u8>> {
     let chain = interface.port_chain.as_deref()?;
     known
         .iter()
@@ -113,8 +116,10 @@ fn mount_path(known: &[HidInterface], interface: &HidInterface) -> Option<Vec<u8
         .map(<[u8]>::to_vec)
 }
 
+// The port chain is part of the comparison because Windows derives the HID
+// path from the serial number: a module moved to another pad keeps its path.
 fn same_module(a: &HidInterface, b: &HidInterface) -> bool {
-    a.serial == b.serial && a.path == b.path
+    a.serial == b.serial && a.path == b.path && a.port_chain == b.port_chain
 }
 
 fn diff(old: &[HidInterface], new: &[HidInterface]) -> Vec<HotplugEvent> {
@@ -231,6 +236,21 @@ mod tests {
         // Linux hands the lowest free hidraw node to the next device.
         let before = [interface(ModuleKind::Keys15, Some("D1"), "/dev/hidraw5")];
         let after = [interface(ModuleKind::Knobs3, Some("K1"), "/dev/hidraw5")];
+        assert_eq!(
+            diff(&before, &after),
+            [
+                HotplugEvent::Left(before[0].clone()),
+                HotplugEvent::Arrived(after[0].clone())
+            ]
+        );
+    }
+
+    #[test]
+    fn a_module_moved_to_another_pad_leaves_and_arrives() {
+        // Windows keeps the HID path of a module that changes ports.
+        let before = [at(ModuleKind::Knobs3, &[1, 4, 3, 1, 3, 4])];
+        let after = [at(ModuleKind::Knobs3, &[1, 4, 3, 1, 2, 4])];
+        assert_eq!(before[0].path, after[0].path);
         assert_eq!(
             diff(&before, &after),
             [

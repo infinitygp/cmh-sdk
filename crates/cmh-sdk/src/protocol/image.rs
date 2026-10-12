@@ -165,7 +165,7 @@ pub fn jpeg_info(data: &[u8]) -> Option<JpegInfo> {
                     width: u16::from_be_bytes([frame[3], frame[4]]),
                     baseline: marker == 0xc0,
                     components,
-                    subsampled: specs.chunks_exact(3).any(|spec| spec[1] != 0x11),
+                    subsampled: specs.as_chunks::<3>().0.iter().any(|spec| spec[1] != 0x11),
                 });
             }
             // Start of scan: no frame header came first.
