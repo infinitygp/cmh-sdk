@@ -56,3 +56,21 @@ Result: `EncoderDelta { index: 1, delta: -1 }` (step code `00`).
 According to the operator the vendor application has no brightness setting
 as such; brightness is an action that can be bound to a control, by default
 to one knob of the 3 Knobs module. Not captured yet.
+
+## Incident: "Firmware update failed" notice
+
+At 13:07 the vendor application, freshly started, showed the notice
+"Firmware update failed. Please try again later." Experiments were paused
+and the state checked without writing to any module:
+
+- All four mounted modules were enumerated normally by Windows.
+- The application's own log of that start lists unchanged firmware versions
+  (Keys `02.00.01.00`, Rollers `01.00.03.01`, Faders `01.00.05.00`, Base
+  `02.00.04.00`) followed by
+  `Error checking firmware version: TypeError: Failed to fetch`.
+
+Reading: the application could not reach its update server and reports
+that with a misleading text; no update was started. LIKELY (no USB capture
+was running at that moment). The notice was dismissed; the "Device
+Firmware" dialog of the application has never been opened in these
+experiments.
