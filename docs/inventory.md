@@ -66,7 +66,9 @@ Nine 4-port hubs (1 + 4 + 4) give 28 downstream ports for a 4x6 = 24 cell
 grid plus the base controller. Hypothesis (UNKNOWN): each contact position
 on the base is wired to a fixed hub port, so the port path of a module
 encodes its physical position. First data points are in
-[experiment 0005](experiments/0005-no-app-hotplug-faders.md#part-5-port-paths).
+[experiment 0005](experiments/0005-no-app-hotplug-faders.md#part-5-port-paths);
+[experiment 0007](experiments/0007-vendor-app-module-location.md) shows that
+the vendor application relies on exactly this path.
 
 ## HID interface
 

@@ -59,7 +59,9 @@ covered by unit tests only.
    vendor application's UI. LED rings of the 3 Knobs: module code not
    observed yet. Do LED settings sent without the persist flag survive a
    power cycle?
-6. Does the hub port path of a module map to a fixed position on the base?
+6. Position on the base: the vendor application derives it from the USB
+   port path (experiment 0007). Still needed: the path-to-cell table and a
+   way to read the port path on Windows and Linux.
 7. JPEG tolerance of the display modules: chroma subsampling, progressive
    mode, maximum size. The SDK accepts only what was seen working.
 8. Behaviour on a clean exit of the vendor application.

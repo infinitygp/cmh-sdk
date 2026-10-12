@@ -46,6 +46,9 @@ controls.
 Side effect of the experiment: the colour of the 5 Faders was stored as red
 and then as purple `74 3a df` again by the application. Settings were put
 back (static, purple, brightness 50 on the base and 49 on the faders).
+The application writes its profile file only when OK is clicked, so the
+restore had to be repeated with OK after a first attempt was lost when the
+application was closed.
 
 ## SDK check
 
