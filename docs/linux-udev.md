@@ -111,8 +111,10 @@ The SDK therefore puts those questions only after it enabled software mode
 itself, and enables it in a way that also works on a module left in that
 state by other software. `Deck` enables software mode when a display
 module connects; with `cmh`, `image`, `brightness`, `software-mode on` and
-`info --software-mode` do. Nothing of this is specific to Linux as far as
-is known; it was found here because the modules are never in software mode
+`info --software-mode` do. Nothing of this is specific to Linux: the keys
+behave the same on Windows
+([experiment 0024](experiments/0024-standalone-mode-reads-windows.md)). It
+was found here because the modules are never in software mode
 on their own.
 
 ## Known differences from Windows

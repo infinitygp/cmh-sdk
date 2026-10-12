@@ -42,7 +42,10 @@ only. In standalone mode the read succeeds with no data, and it must not be
 attempted: afterwards the module carries out a feature write only when the
 next feature write arrives, and drops it if a read comes first. Two
 `03 3a 01` in a row followed by a firmware read end that state. CONFIRMED
-(experiment 0021). The device info is answered in both modes.
+on Linux (experiment 0021) and on Windows (experiment 0024). While it lasts
+the module also answers string descriptor requests out of step, which
+Windows shows as wrong serial, product and manufacturer strings. The device
+info is answered in both modes.
 
 Device info payload (11 bytes):
 

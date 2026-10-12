@@ -85,7 +85,10 @@ being seated (experiment 0011).
 6. Display modules in standalone mode (experiment 0021): why a firmware
    or brightness read there delays the feature writes that follow, and
    why a brightness level sent right after entering software mode can be
-   lost. The behaviour was found on Linux and not repeated on Windows.
+   lost. The keys behave the same on Windows (experiment 0024); there a
+   module in that state also reports wrong serial and product strings, so
+   a `Deck` first connects it under a wrong identity and corrects that on
+   its next rescan.
 7. The declared minimum Rust version (1.88) follows from the language
    features used; it has not been built with exactly that toolchain.
 8. Feature reports whose bytes are known but not understood (experiment
