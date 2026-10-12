@@ -103,7 +103,8 @@ pub(crate) fn mount_path(known: &[HidInterface], interface: &HidInterface) -> Op
     let chain = interface.port_chain.as_deref()?;
     known
         .iter()
-        .filter(|i| i.kind == ModuleKind::Base)
+        // Chains from different host controllers can look alike.
+        .filter(|i| i.kind == ModuleKind::Base && i.usb_bus == interface.usb_bus)
         .filter_map(|base| {
             // Everything in front of the controller's own path is the route
             // from the host to the base's first hub.
@@ -116,10 +117,19 @@ pub(crate) fn mount_path(known: &[HidInterface], interface: &HidInterface) -> Op
         .map(<[u8]>::to_vec)
 }
 
-// The port chain is part of the comparison because Windows derives the HID
-// path from the serial number: a module moved to another pad keeps its path.
-fn same_module(a: &HidInterface, b: &HidInterface) -> bool {
-    a.serial == b.serial && a.path == b.path && a.port_chain == b.port_chain
+/// Whether two listings describe the same module in the same place.
+///
+/// The USB location is part of the comparison because Windows derives the
+/// HID path from the serial number: a module moved to another pad keeps its
+/// path. A location that is unknown on either side is not held against the
+/// match, and descriptive strings never are: the OS can fail to read them
+/// on a single enumeration.
+pub(crate) fn same_module(a: &HidInterface, b: &HidInterface) -> bool {
+    let same_place = match (&a.port_chain, &b.port_chain) {
+        (Some(x), Some(y)) => x == y && a.usb_bus == b.usb_bus,
+        _ => true,
+    };
+    a.serial == b.serial && a.path == b.path && same_place
 }
 
 fn diff(old: &[HidInterface], new: &[HidInterface]) -> Vec<HotplugEvent> {
@@ -156,12 +166,14 @@ mod tests {
             usage: 1,
             interface_number: 0,
             port_chain: None,
+            usb_bus: None,
         }
     }
 
     fn at(kind: ModuleKind, chain: &[u8]) -> HidInterface {
         HidInterface {
             port_chain: Some(chain.to_vec()),
+            usb_bus: Some("bus".to_owned()),
             ..interface(kind, Some("S"), "p")
         }
     }
@@ -190,6 +202,36 @@ mod tests {
         let unknown = interface(ModuleKind::Knobs3, Some("K"), "p");
         let base = at(ModuleKind::Base, &[1, 4, 3, 1, 4, 4]);
         assert_eq!(mount_path(&[base, unknown.clone()], &unknown), None);
+    }
+
+    #[test]
+    fn mount_path_ignores_a_base_on_another_controller() {
+        // Two bases whose chains look alike but hang on different host
+        // controllers; the knobs sit on the first.
+        let ours = at(ModuleKind::Base, &[2, 1, 4, 4]);
+        let mut other = at(ModuleKind::Base, &[2, 1, 1, 4, 4]);
+        other.usb_bus = Some("other".to_owned());
+        let knobs = at(ModuleKind::Knobs3, &[2, 1, 3, 4]);
+        for known in [
+            [other.clone(), ours.clone(), knobs.clone()],
+            [ours, other, knobs.clone()],
+        ] {
+            assert_eq!(mount_path(&known, &knobs), Some(vec![1, 3, 4]));
+        }
+    }
+
+    #[test]
+    fn listings_match_despite_cosmetic_differences() {
+        let a = at(ModuleKind::Keys15, &[1, 2, 2]);
+        let mut b = a.clone();
+        b.product = Some("15xKey w/ IPS, 4x3".to_owned());
+        b.manufacturer = Some("COOLER MASTER".to_owned());
+        assert!(same_module(&a, &b));
+        // An unknown location on one side does not make it another module.
+        b.port_chain = None;
+        b.usb_bus = None;
+        assert!(same_module(&a, &b));
+        assert!(diff(&[a], &[b]).is_empty());
     }
 
     #[test]

@@ -9,7 +9,7 @@ rust-version = "1.88"
 publish = false
 
 [workspace.dependencies]
-cmh-sdk = { path = "crates/cmh-sdk", features = ["image"] }
+cmh-sdk = { path = "crates/cmh-sdk" }
 hidapi = "2.6"
 thiserror = "2"
 clap = { version = "4.5", features = ["derive"] }

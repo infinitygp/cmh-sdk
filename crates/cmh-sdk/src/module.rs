@@ -36,6 +36,15 @@ pub struct Module {
     decoder: InputDecoder,
 }
 
+impl std::fmt::Debug for Module {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Module")
+            .field("kind", &self.kind)
+            .field("serial", &self.serial)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Module {
     pub(crate) fn new(
         kind: ModuleKind,
@@ -65,7 +74,11 @@ impl Module {
     }
 
     /// Waits up to `timeout` for one raw input report.
-    pub fn read_raw(&self, timeout: Duration) -> Result<Option<Vec<u8>>> {
+    ///
+    /// Takes `&mut self` because reading consumes input: a module shared
+    /// through [`Deck::module`](crate::Deck::module) cannot have its reports
+    /// taken away from the deck.
+    pub fn read_raw(&mut self, timeout: Duration) -> Result<Option<Vec<u8>>> {
         let mut buf = [0u8; INPUT_REPORT_LEN];
         let len = self.transport.read_input(&mut buf, timeout)?;
         Ok((len > 0).then(|| buf[..len.min(INPUT_REPORT_LEN)].to_vec()))
@@ -333,6 +346,19 @@ mod tests {
         assert_eq!(mock.sent().len(), 1);
     }
 
+    /// A real picture file, for the conversion path.
+    #[cfg(feature = "image")]
+    fn png() -> Vec<u8> {
+        let mut file = Vec::new();
+        image::DynamicImage::new_rgb8(20, 10)
+            .write_to(
+                &mut std::io::Cursor::new(&mut file),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        file
+    }
+
     /// The SDK must only ever emit the commands that were verified on
     /// hardware, whatever a caller asks of whichever module.
     #[test]
@@ -363,6 +389,8 @@ mod tests {
             for target in [0, 14, 15, 255] {
                 let _ = module.set_image(target, &key);
                 let _ = module.set_image(target, &dial);
+                #[cfg(feature = "image")]
+                let _ = module.set_picture(target, &png());
                 for mode in LedMode::ALL {
                     let _ = module.set_led_mode(target, mode);
                 }

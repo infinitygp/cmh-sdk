@@ -76,6 +76,7 @@ impl LedMode {
 
 /// One LED setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum LedCommand {
     Mode(LedMode),
     /// Colour used by the effects that take one (static, breathing, strobe).

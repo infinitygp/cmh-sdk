@@ -37,6 +37,12 @@ pub enum InputEvent {
         index: u8,
         value: u8,
     },
+    /// The base was stood upright on its short side (`true`) or laid flat
+    /// (`false`). Reported once after connecting and then on every change;
+    /// it may flicker while the base is being handled.
+    OrientationChanged {
+        upright: bool,
+    },
 }
 
 const MAX_BUTTONS: usize = 15;
@@ -54,6 +60,8 @@ pub struct InputDecoder {
     /// `None` until a position is known; the first report then yields an
     /// event for every fader.
     positions: [Option<u8>; MAX_FADERS],
+    /// Last orientation reported by the base heartbeat.
+    upright: Option<bool>,
 }
 
 impl InputDecoder {
@@ -62,6 +70,7 @@ impl InputDecoder {
             kind,
             pressed: [false; MAX_BUTTONS],
             positions: [None; MAX_FADERS],
+            upright: None,
         }
     }
 
@@ -69,10 +78,12 @@ impl InputDecoder {
         self.kind
     }
 
-    /// Forgets which buttons are held and where the faders are.
+    /// Forgets which buttons are held, where the faders are and how the
+    /// base stands.
     pub fn reset(&mut self) {
         self.pressed = [false; MAX_BUTTONS];
         self.positions = [None; MAX_FADERS];
+        self.upright = None;
     }
 
     /// Records fader positions obtained out of band (feature report), so
@@ -85,7 +96,8 @@ impl InputDecoder {
 
     /// Decodes one raw input report (including its report ID).
     ///
-    /// Heartbeats and reports that are not understood yield no events.
+    /// Reports that are not understood yield no events, and neither does a
+    /// heartbeat that repeats the known orientation.
     pub fn decode(&mut self, report: &[u8]) -> Result<Vec<InputEvent>> {
         let mut events = Vec::new();
         match InputMessage::parse(self.kind, report)? {
@@ -128,7 +140,19 @@ impl InputDecoder {
                     }
                 }
             }
-            InputMessage::Heartbeat { .. } | InputMessage::Unknown { .. } => {}
+            InputMessage::Heartbeat { status } => {
+                // 1 while the base lies flat, 0 while it stands upright.
+                let upright = match status {
+                    0 => true,
+                    1 => false,
+                    _ => return Ok(events),
+                };
+                if self.upright != Some(upright) {
+                    self.upright = Some(upright);
+                    events.push(InputEvent::OrientationChanged { upright });
+                }
+            }
+            InputMessage::Unknown { .. } => {}
         }
         Ok(events)
     }
@@ -233,8 +257,38 @@ mod tests {
     }
 
     #[test]
-    fn base_heartbeat_yields_no_events() {
-        assert!(of(&decode_session(), ModuleKind::Base).is_empty());
+    fn base_heartbeat_reports_orientation_once() {
+        // Three identical heartbeats of a base lying flat.
+        assert_eq!(
+            of(&decode_session(), ModuleKind::Base),
+            [InputEvent::OrientationChanged { upright: false }]
+        );
+    }
+
+    #[test]
+    fn base_orientation_follows_the_heartbeat() {
+        // Experiment 0016: the base was stood on its short side and laid
+        // flat again.
+        let text = include_str!("../../../fixtures/inputs/base-orientation.txt");
+        let fixture = Fixture::parse(text).unwrap();
+        let mut decoder = InputDecoder::new(ModuleKind::Base);
+        let mut states = Vec::new();
+        for record in fixture.records() {
+            for event in decoder.decode(&record.report()).unwrap() {
+                match event {
+                    InputEvent::OrientationChanged { upright } => states.push(upright),
+                    other => panic!("unexpected {other:?}"),
+                }
+            }
+        }
+        assert_eq!(states, [false, true, false, true, false, true, false]);
+        // An unknown status byte changes nothing.
+        assert!(
+            decoder
+                .decode(&[0x01, 0x2b, 0x01, 0x00, 0x07])
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

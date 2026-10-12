@@ -30,7 +30,9 @@ fn main() -> cmh_sdk::Result<()> {
                     println!("disconnected {} ({})", info.kind, info.id)
                 }
                 DeckEvent::Input { kind, event, .. } => println!("{kind}: {event:?}"),
-                DeckEvent::OpenFailed { interface, error } => {
+                DeckEvent::OpenFailed {
+                    interface, error, ..
+                } => {
                     eprintln!("cannot open {}: {error}", interface.kind)
                 }
                 _ => {}

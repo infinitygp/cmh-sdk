@@ -6,7 +6,7 @@
 //!
 //! | Module | Tag | Type | Meaning |
 //! |---|---|---|---|
-//! | Base | `0x2b` | - | heartbeat, one status byte |
+//! | Base | `0x2b` | - | heartbeat, one orientation byte |
 //! | 3 Knobs | `0x2a` | `0x00` | rotation step per knob |
 //! | 3 Knobs | `0x2a` | `0x03` | button state per knob |
 //! | 2 Rollers | `0x2a` | `0x01` | rotation step per roller |
@@ -32,7 +32,8 @@ pub const FADER_MAX: u8 = 100;
 /// A decoded input report. Slices hold one byte per control, in index order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputMessage<'a> {
-    /// Periodic report sent by the base while idle.
+    /// Periodic report sent by the base: `1` while it lies flat, `0` while
+    /// it stands upright on its short side.
     Heartbeat { status: u8 },
     /// Per-encoder step codes ([`STEP_CODE_0`], [`STEP_CODE_1`], [`STEP_NONE`]).
     EncoderSteps(&'a [u8]),

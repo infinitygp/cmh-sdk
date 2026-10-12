@@ -24,6 +24,8 @@ pub(crate) struct State {
     pub features: Vec<Vec<u8>>,
     pub sent: Vec<Sent>,
     pub fail_output_after: Option<usize>,
+    /// Timeout of every input read that was requested.
+    pub read_timeouts: Vec<Duration>,
     /// Makes every operation fail the way a pulled module does.
     pub unplugged: bool,
 }
@@ -65,9 +67,11 @@ impl Mock {
 }
 
 impl Transport for Mock {
-    fn read_input(&self, buf: &mut [u8], _timeout: Duration) -> Result<usize> {
+    fn read_input(&self, buf: &mut [u8], timeout: Duration) -> Result<usize> {
         self.check()?;
-        match self.0.lock().unwrap().inputs.pop_front() {
+        let mut state = self.0.lock().unwrap();
+        state.read_timeouts.push(timeout);
+        match state.inputs.pop_front() {
             Some(report) => {
                 buf[..report.len()].copy_from_slice(&report);
                 Ok(INPUT_REPORT_LEN)

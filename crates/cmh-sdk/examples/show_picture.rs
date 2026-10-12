@@ -22,6 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 id,
                 kind: ModuleKind::Keys15,
                 event: InputEvent::ButtonDown { index },
+                ..
             } = event
                 && let Some(keys) = deck.module(&id)
             {

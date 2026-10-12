@@ -380,6 +380,12 @@ fn monitor(select: Select, raw: bool, heartbeat: bool, limit: Option<Duration>) 
                 DeckEvent::Disconnected(info) => {
                     println!("# {t:9.3} left    {}", label(&info.interface))
                 }
+                DeckEvent::Relocated(info) => println!(
+                    "# {t:9.3} placed  {} mount_path={} placement: {}",
+                    label(&info.interface),
+                    dotted(info.mount_path),
+                    cells(info.placement)
+                ),
                 DeckEvent::RawInput { kind, report, .. } => {
                     let is_heartbeat = matches!(
                         InputMessage::parse(kind, &report),
@@ -395,7 +401,9 @@ fn monitor(select: Select, raw: bool, heartbeat: bool, limit: Option<Duration>) 
                 DeckEvent::Undecodable { kind, error, .. } => {
                     println!("# {t:9.3} {:<12} undecodable: {error}", kind.name())
                 }
-                DeckEvent::OpenFailed { interface, error } => {
+                DeckEvent::OpenFailed {
+                    interface, error, ..
+                } => {
                     eprintln!("cannot open {}: {error} (will retry)", label(&interface))
                 }
                 _ => {}

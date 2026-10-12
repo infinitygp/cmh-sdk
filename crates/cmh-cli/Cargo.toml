@@ -11,5 +11,5 @@ name = "cmh"
 path = "src/main.rs"
 
 [dependencies]
-cmh-sdk.workspace = true
+cmh-sdk = { workspace = true, features = ["image"] }
 clap.workspace = true

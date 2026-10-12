@@ -47,6 +47,8 @@ pub struct HidInterface {
     /// platform exposes them. Changes when the module is moved; see
     /// [`Manager::mount_path`](crate::Manager::mount_path).
     pub port_chain: Option<Vec<u8>>,
+    /// Identifies the USB host controller the port chain belongs to.
+    pub usb_bus: Option<String>,
 }
 
 /// Lists every HID interface exposed by connected MasterHUB modules.
@@ -71,18 +73,24 @@ pub(crate) fn scan(api: &mut HidApi) -> Result<Vec<HidInterface>> {
         .filter(|d| d.vendor_id() == VENDOR_ID)
         .filter_map(|d| {
             let kind = ModuleKind::from_product_id(d.product_id())?;
+            let location = location::usb_location(d.path());
             Some(HidInterface {
                 kind,
                 path: d.path().to_owned(),
                 product_id: d.product_id(),
-                serial: d.serial_number().map(str::to_owned),
+                // An empty serial identifies nothing.
+                serial: d
+                    .serial_number()
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned),
                 manufacturer: d.manufacturer_string().map(str::to_owned),
                 product: d.product_string().map(str::to_owned),
                 release_number: d.release_number(),
                 usage_page: d.usage_page(),
                 usage: d.usage(),
                 interface_number: d.interface_number(),
-                port_chain: location::port_chain(d.path()),
+                port_chain: location.as_ref().map(|l| l.ports.clone()),
+                usb_bus: location.map(|l| l.bus),
             })
         })
         .collect();

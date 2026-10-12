@@ -1,0 +1,27 @@
+# Base heartbeat while the base was stood upright on its short side and
+# laid flat again (docs/experiments/0016). Only the reports around each
+# change are kept; the status byte is 01 flat, 00 upright.
+# <seconds> <product id> <direction> <hex bytes, zero padding trimmed>
+    0.264 01f6 in 01 2b 01 00 01
+    0.780 01f6 in 01 2b 01 00 01
+  546.777 01f6 in 01 2b 01 00 01
+  547.298 01f6 in 01 2b 01 00 01
+  548.800 01f6 in 01 2b 01
+  549.330 01f6 in 01 2b 01
+  555.035 01f6 in 01 2b 01
+  555.552 01f6 in 01 2b 01
+  556.079 01f6 in 01 2b 01 00 01
+  556.596 01f6 in 01 2b 01 00 01
+  563.783 01f6 in 01 2b 01 00 01
+  564.328 01f6 in 01 2b 01 00 01
+  581.886 01f6 in 01 2b 01
+  582.399 01f6 in 01 2b 01
+  594.786 01f6 in 01 2b 01
+  595.316 01f6 in 01 2b 01
+  595.833 01f6 in 01 2b 01 00 01
+  596.845 01f6 in 01 2b 01
+  597.376 01f6 in 01 2b 01
+  603.092 01f6 in 01 2b 01
+  604.652 01f6 in 01 2b 01
+  605.637 01f6 in 01 2b 01 00 01
+  606.167 01f6 in 01 2b 01 00 01
