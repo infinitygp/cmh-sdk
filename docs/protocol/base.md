@@ -55,10 +55,15 @@ Cycling, `06` Random, `07` Wave, `08` Water, `09` Rainbow. The vendor
 application offers nothing for `04`.
 
 `<persist>` is `00` for live changes. The vendor application sends the
-colour once more with `01` a few seconds after the user stops adjusting,
-which most likely stores it in the module (LIKELY). The SDK always sends
-`00`, and settings sent that way are lost on power-down (experiment 0017,
-seen on the 3 Knobs).
+colour once more with `01` a few seconds after its colour picker is closed,
+which makes the module keep that colour across a power cycle. CONFIRMED on
+the base (experiment 0027). Effect and brightness are not kept: after
+power-up a module runs the rainbow effect at brightness 100, and the stored
+colour shows once the static effect is selected. The byte has only been
+seen on the colour report; whether the effect report honours it is UNKNOWN.
+The SDK always sends
+`00`, and settings sent that way are lost on power-down (experiments 0017
+and 0027).
 
 ```text
 02 2d 00 00 74 3a df 00      colour 74 3a df

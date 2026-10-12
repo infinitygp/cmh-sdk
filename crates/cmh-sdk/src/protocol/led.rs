@@ -9,8 +9,10 @@
 //! ```
 //!
 //! `<module>` is `00` on the base, `01` on the 5 Faders and `02` on the
-//! 3 Knobs; `<index>` selects one LED zone. The vendor application sets `<persist>` to `01` only when it
-//! stores a setting in the module; this SDK always sends `00`.
+//! 3 Knobs; `<index>` selects one LED zone. The vendor application sets
+//! `<persist>` to `01` on a colour report to make the module keep that
+//! colour across a power cycle (experiment 0027); it was never seen set on
+//! an effect report. This SDK always sends `00`.
 
 use crate::devices::ModuleKind;
 use crate::error::{Error, Result};

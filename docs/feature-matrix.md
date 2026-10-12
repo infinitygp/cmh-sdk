@@ -102,3 +102,7 @@ being seated (experiment 0011).
    as destructive were deliberately not touched.
 9. The running LED effect and colour cannot be read back; a host has to
    remember what it set.
+10. Storing an LED colour in a module, which the vendor application does
+    after its colour picker is closed, is understood (experiment 0027) and
+    deliberately not offered: it is a write to the module's permanent
+    memory, and only the colour is kept.

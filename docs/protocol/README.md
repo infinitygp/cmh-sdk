@@ -82,9 +82,11 @@ running (experiment 0005). CONFIRMED.
 The 15 LCD Keys and the Dial Display only report input in software mode
 (experiment 0017), which has to be enabled after every power-up.
 
-Nothing a host sets is remembered across a power cycle unless the vendor
-application's persist flag is used: software mode, display brightness, LED
-settings and images are all back to their defaults (experiment 0017).
+Nothing a host sets is remembered across a power cycle: software mode,
+display brightness, LED effect and brightness and images are all back to
+their defaults (experiment 0017). The one exception is an LED colour sent
+with the vendor application's store byte, which the SDK never sets
+(experiment 0027).
 
 ## Feature reports
 
