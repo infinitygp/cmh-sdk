@@ -30,9 +30,9 @@ workspace builds and its tests pass, device access is untested. Firmware: Base
 | Mount path (USB port path below the base) | done | done | done | done | done | open |
 | Grid position derived from the mount path | open | open | open | open | open | open |
 
-Hot-plug was verified by exchanging modules on a powered base (experiment
-0005); the automatic re-open path of `cmh monitor` after an I/O error is
-covered by unit tests only.
+Hot-plug was verified by exchanging modules on a powered base (experiments
+0005, 0009), including recovery from a contact bounce while a module was
+being seated (experiment 0011).
 
 ## Tools
 
@@ -57,9 +57,9 @@ covered by unit tests only.
 4. What does the heartbeat status byte mean?
 5. Display brightness level 0. Do LED and brightness settings survive a
    power cycle?
-6. Position on the base: the SDK reports the mount path (experiment 0010);
-   the table from mount path to grid cells and orientation is still to be
-   built by moving modules around.
+6. Position on the base: the SDK reports the mount path (experiment 0010).
+   The path encodes position and orientation together; nine placements are
+   known (experiment 0011) and the full table is still to be built.
 7. JPEG tolerance of the display modules: chroma subsampling, progressive
    mode, maximum size. The SDK accepts only what was seen working.
 8. Behaviour on a clean exit of the vendor application.
