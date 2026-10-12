@@ -67,6 +67,5 @@ SDK: `Module::set_led_mode`, `set_led_color`, `set_led_brightness`.
 ## Not investigated
 
 - Feature reports `0x2d` `0x2f` `0x30` `0x32` `0x34` `0x35` `0x36`. UNKNOWN.
-- Whether the base knows which module sits where. UNKNOWN; the base's own
-  reports carry no such data so far. See the topology hypothesis in
-  [../inventory.md](../inventory.md).
+- The base controller reports nothing about which module sits where;
+  positions come from the USB topology, see [placement.md](placement.md).

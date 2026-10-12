@@ -81,8 +81,10 @@ The model reproduces all thirteen, including the three orientations that
 make no contact. The last three rows assign a pad to a path only through
 the model: no 2x2 module has been put on those pads yet.
 
-Status: LIKELY. It explains everything observed with one rule, but the pad
-positions come from a photo and three assignments are untested.
+Status at the time of writing: LIKELY. It explains everything observed with
+one rule, but the pad positions come from a photo and three assignments are
+untested. [Experiment 0014](0014-pad-table-completed.md) tested them: two
+held, and the rollers turned out to carry their contact elsewhere.
 
 ## Predictions to test
 

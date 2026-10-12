@@ -9,7 +9,8 @@ Derived from our own observations of real hardware (see
 
 Per module: [base](base.md), [15 LCD Keys](keys15.md), [3 Knobs](knobs3.md),
 [2 Rollers](rollers2.md), [Dial Display](dial-display.md),
-[5 Faders](faders5.md).
+[5 Faders](faders5.md). Where a module sits on the base:
+[placement](placement.md).
 
 ## Device model
 
@@ -146,9 +147,9 @@ Observed with MasterHUB 1.0.0.113 (experiments 0001, 0003):
   in the module a few seconds later (experiment 0006). While running it
   re-sends the LED settings of its profile every 60 s, overriding anything
   another program has set (experiment 0009).
-- Draws the mounted modules at their real positions and orientation, so it
-  has a way to locate them; nothing in the HID traffic seen so far carries
-  that information.
+- Draws the mounted modules at their real positions and orientation. It
+  derives them from the USB port path of each module
+  ([placement](placement.md)); no HID report carries that information.
 - When the application is killed nothing is sent; the modules keep their
   last images and the base heartbeat continues unchanged.
 

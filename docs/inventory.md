@@ -68,7 +68,8 @@ on the base is wired to a fixed hub port, so the port path of a module
 encodes its physical position. First data points are in
 [experiment 0005](experiments/0005-no-app-hotplug-faders.md#part-5-port-paths);
 [experiment 0007](experiments/0007-vendor-app-module-location.md) shows that
-the vendor application relies on exactly this path.
+the vendor application relies on exactly this path, and the complete table
+is in [protocol/placement.md](protocol/placement.md).
 
 ## HID interface
 
