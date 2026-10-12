@@ -1,7 +1,7 @@
 # 0001: HID inventory and passive idle listening
 
 - Date: 2026-10-12
-- Tools: `cmh list --descriptors`, `cmh sniff --seconds 6` (read only, no report was written to any device)
+- Tools: `cmh list --descriptors` and a passive hidapi read loop (now `cmh monitor --raw --heartbeat`); no report was written to any device
 - State: official MasterHUB application 1.0.0.113 running, nothing touched
 - Modules: Base, 15 LCD Keys, 3 Knobs, 2 Rollers, Dial Display
 

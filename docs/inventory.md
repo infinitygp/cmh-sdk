@@ -27,7 +27,7 @@ Source: `Get-PnpDevice` / `Get-PnpDeviceProperty` and `cmh list --descriptors`.
 | 3 Knobs | `2516:0202` | `3xKnob, 2x2` | `MHKB03AA2212523xxxxx` | `0000` |
 | 2 Rollers | `2516:0204` | `2xRoller, 4x1` | `MHRR02AA4112516xxxxx` | `0000` |
 | Dial Display | `2516:0206` | `1xDial w/ IPS, 2x2` | `MHDD01AA2212523xxxxx` | `0000` |
-| 5 Faders | `2516:0200` | not connected | - | - |
+| 5 Faders | `2516:0200` | `5xFader, 4x2` | `MHFD05AA4212517xxxxx` | `0000` |
 
 Manufacturer string is `COOLER MASTER` on every module.
 
@@ -35,10 +35,10 @@ Observations:
 
 - The USB serial number is unique per module and starts with a 10 character
   model prefix (`MH` + type + count + `AA` + footprint). It is the only stable
-  identity; HID paths and USB addresses change on reconnect. CONFIRMED for the
-  five connected modules.
+  identity; USB addresses are reassigned on reconnect. CONFIRMED for all six
+  module types (the 5 Faders were added in experiment 0005).
 - The product string carries the module footprint in grid cells (`4x6`, `4x3`,
-  `2x2`, `4x1`). CONFIRMED.
+  `4x2`, `2x2`, `4x1`). CONFIRMED.
 - The remaining 10 serial digits look like `1` + `YYWW` + 5 digit sequence
   (`2516`, `2523`). UNKNOWN, pattern guess only.
 - `bcdDevice` is `0000` everywhere, so it does not carry the firmware version.
@@ -63,9 +63,10 @@ first Prolific hub (the base's upstream port).
 ```
 
 Nine 4-port hubs (1 + 4 + 4) give 28 downstream ports for a 4x6 = 24 cell
-grid plus the base controller. Hypothesis (UNKNOWN, to be tested by moving a
-module): each grid cell is wired to a fixed hub port, so the port path of a
-module encodes its physical position.
+grid plus the base controller. Hypothesis (UNKNOWN): each contact position
+on the base is wired to a fixed hub port, so the port path of a module
+encodes its physical position. First data points are in
+[experiment 0005](experiments/0005-no-app-hotplug-faders.md#part-5-port-paths).
 
 ## HID interface
 
@@ -76,18 +77,24 @@ are opaque byte arrays with usage `0xff00`.
 | Report ID | Type | Size incl. ID | Modules |
 |---|---|---|---|
 | `0x01` | Input | 64 | all |
-| `0x02` | Output | 64 | Base, 3 Knobs, 2 Rollers |
+| `0x02` | Output | 64 | Base, 3 Knobs, 2 Rollers, 5 Faders |
 | `0x02` | Output | 320 | 15 LCD Keys, Dial Display |
 | `0x03` | Feature | 32 | all |
-| `0x2d` `0x2e` `0x2f` `0x30` `0x31` `0x36` | Feature | 32 | Base, 3 Knobs, 2 Rollers |
-| `0x32` `0x34` | Feature | 32 | Base, 3 Knobs |
+| `0x2d` `0x2e` `0x2f` `0x30` `0x31` `0x36` | Feature | 32 | Base, 3 Knobs, 2 Rollers, 5 Faders |
+| `0x32` `0x34` | Feature | 32 | Base, 3 Knobs, 5 Faders |
+| `0x33` | Feature | 32 | 5 Faders |
 | `0x35` | Feature | 32 | Base |
 | `0x37`..`0x3e` | Feature | 32 | 15 LCD Keys |
 | `0x47`..`0x4e` | Feature | 32 | Dial Display |
 
 CONFIRMED from the report descriptors returned by the OS. Windows
-reconstructs descriptors from parsed data, so the byte-exact device
-descriptor still has to come from a USB capture.
+reconstructs descriptors from parsed data: the base's real descriptor is 211
+bytes long according to its HID descriptor, the reconstruction 199.
+
+USB descriptors of the base, taken from a USBPcap capture (experiment 0003):
+USB 1.1, `bMaxPacketSize0` 8, one configuration, bus powered, 100 mA, one
+HID interface without boot protocol, interrupt IN `0x81` and interrupt OUT
+`0x02`, both 64 bytes with a 3 ms interval.
 
 Raw descriptor of the base as returned by hidapi (199 bytes):
 
