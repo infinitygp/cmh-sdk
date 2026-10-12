@@ -71,7 +71,7 @@ being seated (experiment 0011).
    units are wired the same as the one examined
    ([protocol/placement.md](protocol/placement.md)).
 4. JPEG tolerance of the display modules: the maximum size (above 19 kB
-   on the keys, above 28 kB on the dial) and chroma subsampling on the dial.
+   on the keys, above 28 kB on the dial) and 4:2:2 sampling on the dial.
    The keys take 4:2:2 and 4:2:0 but neither progressive nor greyscale
    (experiment 0019). The SDK accepts only what was seen working.
 5. Behaviour on a clean exit of the vendor application (only a kill was

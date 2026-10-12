@@ -246,8 +246,8 @@ impl Module {
     /// the Dial Display).
     ///
     /// The image must be a baseline JPEG of exactly the display size with
-    /// three components; chroma subsampling is accepted on the 15 LCD Keys
-    /// only. Nothing is sent if it is not. The module does not store the
+    /// three components, stored as 4:4:4 or 4:2:0 (on the 15 LCD Keys also
+    /// 4:2:2). Nothing is sent if it is not. The module does not store the
     /// image.
     pub fn set_image(&self, target: u8, jpeg: &[u8]) -> Result<()> {
         for report in image_reports(self.kind, target, jpeg)? {
