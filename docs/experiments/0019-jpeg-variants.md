@@ -56,9 +56,9 @@ it did not decode.
   therefore not send such data; the SDK refuses it before sending anything.
 - The dial decodes a 28.1 kB image. CONFIRMED. Progressive and greyscale
   were not tried on the dial.
-- Follow-up: a 4:2:0 image (`22 11 11`, 6457 bytes) sent to the dial
-  afterwards was displayed, as reported by the owner. CONFIRMED. 4:2:2 on
-  the dial has not been looked at.
+- Follow-up: a 4:2:0 image (`22 11 11`, 6457 bytes) and then a 4:2:2 image
+  (`21 11 11`, 6686 bytes) were sent to the dial; the owner reported each
+  one as displayed before the next was sent. CONFIRMED.
 - The real size limit of either module is UNKNOWN; only that it is above
   the sizes listed.
 
@@ -67,5 +67,5 @@ it did not decode.
 - `MAX_IMAGE_LEN` raised from 16 KiB to 18 KiB, below the sizes seen
   working on both modules.
 - `Module::set_image` accepts 4:2:2 and 4:2:0 on the 15 LCD Keys and,
-  since the follow-up, 4:2:0 on the Dial Display.
+  since the follow-up, on the Dial Display.
 - Progressive, greyscale and other sampling layouts stay refused.

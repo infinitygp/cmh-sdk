@@ -83,8 +83,8 @@ impl<'a> ImageChunk<'a> {
 /// Display. The image has to be a baseline JPEG of exactly the display size
 /// with three components. The modules ignore progressive and greyscale
 /// JPEGs and then draw an image decoded earlier instead, so those are
-/// refused here. Chroma subsampling is accepted where it has been seen
-/// working: 4:2:0 on both modules, 4:2:2 on the 15 LCD Keys.
+/// refused here. Of the chroma layouts, 4:4:4, 4:2:2 and 4:2:0 have been
+/// seen working on both modules and are accepted.
 pub fn image_reports(
     kind: ModuleKind,
     target: u8,
@@ -108,7 +108,7 @@ pub fn image_reports(
             display.images
         )));
     }
-    validate_jpeg(jpeg, display, kind.family())?;
+    validate_jpeg(jpeg, display)?;
 
     let chunks = jpeg.chunks(IMAGE_CHUNK_LEN);
     let count = chunks.len();
@@ -200,7 +200,7 @@ pub fn jpeg_info(data: &[u8]) -> Option<JpegInfo> {
     }
 }
 
-fn validate_jpeg(jpeg: &[u8], display: DisplaySpec, family: Family) -> Result<()> {
+fn validate_jpeg(jpeg: &[u8], display: DisplaySpec) -> Result<()> {
     let invalid = |message: String| Err(Error::InvalidArgument(message));
     if jpeg.len() > MAX_IMAGE_LEN {
         return invalid(format!(
@@ -220,14 +220,9 @@ fn validate_jpeg(jpeg: &[u8], display: DisplaySpec, family: Family) -> Result<()
                 .to_owned(),
         );
     }
-    let sampling_verified = match info.sampling {
-        Some(ChromaSampling::Full | ChromaSampling::Quarter) => true,
-        Some(ChromaSampling::HalfWidth) => family == Family::Keys,
-        None => false,
-    };
-    if !sampling_verified {
+    if info.sampling.is_none() {
         return invalid(
-            "this chroma sampling has not been verified on the module; use 4:4:4".to_owned(),
+            "only 4:4:4, 4:2:2 and 4:2:0 chroma sampling has been verified on hardware".to_owned(),
         );
     }
     if (info.width, info.height) != (display.width, display.height) {
@@ -346,7 +341,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn chroma_subsampling_only_where_verified() {
+    fn only_verified_chroma_layouts_are_sent() {
         // Offset 19 holds the sampling factors of the first component.
         let with_luma = |width, factors| {
             let mut jpeg = fake_jpeg(width, width, 500);
@@ -360,12 +355,8 @@ pub(crate) mod tests {
             let key = with_luma(72, factors);
             assert_eq!(jpeg_info(&key).unwrap().sampling, Some(sampling));
             assert!(image_reports(ModuleKind::Keys15, 0, &key).is_ok());
-            // On the dial only 4:2:0 has been looked at.
             let dial = with_luma(240, factors);
-            assert_eq!(
-                image_reports(ModuleKind::DialDisplay, 0, &dial).is_ok(),
-                sampling == ChromaSampling::Quarter
-            );
+            assert!(image_reports(ModuleKind::DialDisplay, 0, &dial).is_ok());
         }
         // Layouts nobody tried, such as 4:4:0 or 4:1:1.
         for factors in [0x12, 0x41] {
