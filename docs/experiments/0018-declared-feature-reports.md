@@ -72,7 +72,7 @@ Every read succeeded.
 - `0x36` / `0x3e` / `0x4e`: sixteen bytes, an eight byte value twice,
   different on every module. UNKNOWN.
 - `0x3d` / `0x4d`: an eight byte value twice plus a zero byte. Split as two
-  little endian 32 bit numbers the second is 492 883 on the keys and 228 501
+  little endian 32 bit numbers the second is 493 011 on the keys and 228 501
   on the dial, plausible sizes of the built-in animations, with the first
   number as their checksum. UNKNOWN, a guess.
 
