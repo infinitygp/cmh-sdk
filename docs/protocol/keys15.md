@@ -115,10 +115,23 @@ SDK: `Module::set_display_brightness`.
 
 Image format as produced by the vendor application: baseline JPEG (SOF0),
 72 x 72, three components without chroma subsampling (4:4:4), JFIF header,
-not rotated. Sizes seen working: 2.6 kB to 9.5 kB. Other JPEG flavours
-(progressive, 4:2:0, greyscale), other sizes and the maximum length are
-UNKNOWN. The key lenses hide a few pixels along the image borders, so
-content should keep a margin.
+not rotated, 2.6 kB to 9.5 kB. The key lenses hide a few pixels along the
+image borders, so content should keep a margin.
+
+What else the module decodes (experiment 0019):
+
+| JPEG property | Result |
+|---|---|
+| 4:2:2 and 4:2:0 chroma subsampling | displayed. CONFIRMED |
+| optimised Huffman tables, restart markers, quality 30 | displayed. CONFIRMED |
+| 19.2 kB | displayed. CONFIRMED; the real limit is UNKNOWN |
+| progressive (SOF2) | not decoded. CONFIRMED |
+| greyscale (one component) | not decoded. CONFIRMED |
+| other image sizes | UNKNOWN |
+
+A stream the module cannot decode does not leave the key as it was: the key
+is redrawn with the image the module decoded last, whichever key that was
+meant for. CONFIRMED (0019).
 
 Uploads of all 15 keys take about 150 ms. Images are re-sent by the vendor
 application on every start, so they are not stored permanently by this
@@ -128,10 +141,11 @@ Images stay on the keys after the sending program exits (0005) but are
 gone after a power cycle (0017).
 
 SDK: `Module::set_image(key, jpeg)`; sends nothing unless the data is a
-baseline 4:4:4 JPEG of exactly 72 x 72 and at most 16 KiB.
+baseline three component JPEG (4:4:4, 4:2:2 or 4:2:0) of exactly 72 x 72
+and at most 18 KiB.
 
 ## Not investigated
 
-Full-screen images, feature reports `0x37` `0x39` `0x3a` `0x3c` `0x3d`
-`0x3e` (one of them probably reads the brightness back), other output
-commands. UNKNOWN.
+Full-screen images and other output commands. UNKNOWN. The feature reports
+the vendor application does not use were read once; see the table in
+[README.md](README.md) and experiment 0018.

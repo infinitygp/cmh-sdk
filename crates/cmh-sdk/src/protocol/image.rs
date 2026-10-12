@@ -21,10 +21,10 @@ use crate::error::{Error, Result};
 pub const IMAGE_REPORT_LEN: usize = 320;
 /// Image bytes carried by one report.
 pub const IMAGE_CHUNK_LEN: usize = 312;
-/// Upper bound accepted by this SDK. The largest upload observed from the
-/// vendor application is 13.4 kB; the real device limit is unknown, so the
-/// cap stays close to what has been seen working.
-pub const MAX_IMAGE_LEN: usize = 16 * 1024;
+/// Upper bound accepted by this SDK. Uploads of 19.2 kB to the keys and of
+/// 28.1 kB to the dial were displayed (experiment 0019); the real device
+/// limit is unknown, so the cap stays below what has been seen working.
+pub const MAX_IMAGE_LEN: usize = 18 * 1024;
 
 const OUTPUT_REPORT_ID: u8 = 0x02;
 const HEADER_LEN: usize = IMAGE_REPORT_LEN - IMAGE_CHUNK_LEN;
@@ -81,8 +81,10 @@ impl<'a> ImageChunk<'a> {
 ///
 /// `target` is the key index on the 15 LCD Keys and must be 0 on the Dial
 /// Display. The image has to be a baseline JPEG of exactly the display size
-/// with three components and no chroma subsampling, the only flavour seen
-/// working on hardware.
+/// with three components. The modules ignore progressive and greyscale
+/// JPEGs and then draw an image decoded earlier instead, so those are
+/// refused here. Chroma subsampling (4:2:2, 4:2:0) is accepted where it has
+/// been seen working, which so far is the 15 LCD Keys.
 pub fn image_reports(
     kind: ModuleKind,
     target: u8,
@@ -106,7 +108,7 @@ pub fn image_reports(
             display.images
         )));
     }
-    validate_jpeg(jpeg, display)?;
+    validate_jpeg(jpeg, display, kind.family())?;
 
     let chunks = jpeg.chunks(IMAGE_CHUNK_LEN);
     let count = chunks.len();
@@ -122,6 +124,18 @@ pub fn image_reports(
     }))
 }
 
+/// How the two colour components of a three component JPEG are stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ChromaSampling {
+    /// 4:4:4, at full resolution.
+    Full,
+    /// 4:2:2, at half the horizontal resolution.
+    HalfWidth,
+    /// 4:2:0, at half the resolution in both directions.
+    Quarter,
+}
+
 /// Frame header of a JPEG stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -131,8 +145,19 @@ pub struct JpegInfo {
     /// Sequential baseline DCT (SOF0), as opposed to progressive and others.
     pub baseline: bool,
     pub components: u8,
-    /// Whether any component is stored at reduced resolution (4:2:2, 4:2:0).
-    pub subsampled: bool,
+    /// `None` for anything but a three component image in one of the three
+    /// common layouts.
+    pub sampling: Option<ChromaSampling>,
+}
+
+fn chroma_sampling(specs: &[u8]) -> Option<ChromaSampling> {
+    // Three bytes per component; the middle one holds the sampling factors.
+    match specs {
+        [_, 0x11, _, _, 0x11, _, _, 0x11, _] => Some(ChromaSampling::Full),
+        [_, 0x21, _, _, 0x11, _, _, 0x11, _] => Some(ChromaSampling::HalfWidth),
+        [_, 0x22, _, _, 0x11, _, _, 0x11, _] => Some(ChromaSampling::Quarter),
+        _ => None,
+    }
 }
 
 /// Reads the frame header of a JPEG stream without decoding it.
@@ -165,7 +190,7 @@ pub fn jpeg_info(data: &[u8]) -> Option<JpegInfo> {
                     width: u16::from_be_bytes([frame[3], frame[4]]),
                     baseline: marker == 0xc0,
                     components,
-                    subsampled: specs.as_chunks::<3>().0.iter().any(|spec| spec[1] != 0x11),
+                    sampling: chroma_sampling(specs),
                 });
             }
             // Start of scan: no frame header came first.
@@ -175,7 +200,7 @@ pub fn jpeg_info(data: &[u8]) -> Option<JpegInfo> {
     }
 }
 
-fn validate_jpeg(jpeg: &[u8], display: DisplaySpec) -> Result<()> {
+fn validate_jpeg(jpeg: &[u8], display: DisplaySpec, family: Family) -> Result<()> {
     let invalid = |message: String| Err(Error::InvalidArgument(message));
     if jpeg.len() > MAX_IMAGE_LEN {
         return invalid(format!(
@@ -189,10 +214,20 @@ fn validate_jpeg(jpeg: &[u8], display: DisplaySpec) -> Result<()> {
     let Some(info) = jpeg_info(jpeg) else {
         return invalid("image is not a JPEG stream".to_owned());
     };
-    if !info.baseline || info.components != 3 || info.subsampled {
+    if !info.baseline || info.components != 3 {
         return invalid(
-            "only baseline JPEG with three components and 4:4:4 sampling has been verified on hardware"
+            "the modules display only baseline JPEG with three components, not progressive or greyscale"
                 .to_owned(),
+        );
+    }
+    let sampling_verified = match info.sampling {
+        Some(ChromaSampling::Full) => true,
+        Some(ChromaSampling::HalfWidth | ChromaSampling::Quarter) => family == Family::Keys,
+        None => false,
+    };
+    if !sampling_verified {
+        return invalid(
+            "this chroma sampling has not been verified on the module; use 4:4:4".to_owned(),
         );
     }
     if (info.width, info.height) != (display.width, display.height) {
@@ -299,18 +334,45 @@ pub(crate) mod tests {
         assert!(image_reports(ModuleKind::Knobs3, 0, &key).is_err());
         assert!(image_reports(ModuleKind::Keys15, 0, &key[..400]).is_err());
         assert!(image_reports(ModuleKind::Keys15, 0, b"not a jpeg").is_err());
+        // Both were ignored by the keys in experiment 0019.
         let mut progressive = key.clone();
         progressive[9] = 0xc2;
         assert!(image_reports(ModuleKind::Keys15, 0, &progressive).is_err());
-        // 4:2:0 chroma subsampling: first component sampled 2x2.
-        let mut subsampled = key.clone();
-        subsampled[19] = 0x22;
-        assert!(image_reports(ModuleKind::Keys15, 0, &subsampled).is_err());
         let mut grey = key.clone();
         grey[17] = 1;
         assert!(image_reports(ModuleKind::Keys15, 0, &grey).is_err());
         let huge = fake_jpeg(72, 72, MAX_IMAGE_LEN + 1);
         assert!(image_reports(ModuleKind::Keys15, 0, &huge).is_err());
+    }
+
+    #[test]
+    fn chroma_subsampling_only_where_verified() {
+        // Offset 19 holds the sampling factors of the first component.
+        let with_luma = |width, factors| {
+            let mut jpeg = fake_jpeg(width, width, 500);
+            jpeg[19] = factors;
+            jpeg
+        };
+        for (factors, sampling) in [
+            (0x21, ChromaSampling::HalfWidth),
+            (0x22, ChromaSampling::Quarter),
+        ] {
+            let key = with_luma(72, factors);
+            assert_eq!(jpeg_info(&key).unwrap().sampling, Some(sampling));
+            assert!(image_reports(ModuleKind::Keys15, 0, &key).is_ok());
+            let dial = with_luma(240, factors);
+            assert!(image_reports(ModuleKind::DialDisplay, 0, &dial).is_err());
+        }
+        // Layouts nobody tried, such as 4:4:0 or 4:1:1.
+        for factors in [0x12, 0x41] {
+            let key = with_luma(72, factors);
+            assert_eq!(jpeg_info(&key).unwrap().sampling, None);
+            assert!(image_reports(ModuleKind::Keys15, 0, &key).is_err());
+        }
+        // Subsampled the other way round: chroma finer than luma.
+        let mut odd = fake_jpeg(72, 72, 500);
+        odd[22] = 0x22;
+        assert!(image_reports(ModuleKind::Keys15, 0, &odd).is_err());
     }
 
     #[test]
@@ -320,7 +382,7 @@ pub(crate) mod tests {
             height: 120,
             baseline: true,
             components: 3,
-            subsampled: false,
+            sampling: Some(ChromaSampling::Full),
         };
         assert_eq!(jpeg_info(&fake_jpeg(240, 120, 200)), Some(info));
         // Fill bytes before a marker are legal.
@@ -349,7 +411,8 @@ pub(crate) mod tests {
             .collect();
         let info = jpeg_info(&jpeg).unwrap();
         assert_eq!((info.width, info.height), (72, 72));
-        assert!(info.baseline && info.components == 3 && !info.subsampled);
+        assert!(info.baseline && info.components == 3);
+        assert_eq!(info.sampling, Some(ChromaSampling::Full));
 
         let encoded: Vec<Vec<u8>> = image_reports(ModuleKind::Keys15, 0, &jpeg)
             .unwrap()

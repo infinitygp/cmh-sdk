@@ -1,9 +1,10 @@
 //! Turning ordinary images into what the display modules accept.
 //!
-//! The modules take one JPEG flavour only (see `docs/protocol/keys15.md`):
-//! baseline, three components without chroma subsampling, exactly the size
-//! of the display, and small. This module produces that from pixels or from
-//! an encoded PNG / JPEG file. Requires the `image` cargo feature.
+//! The modules are particular about their JPEGs (see
+//! `docs/protocol/keys15.md`): baseline, three components, exactly the size
+//! of the display, and small. This module produces that, without chroma
+//! subsampling, from pixels or from an encoded PNG / JPEG file. Requires
+//! the `image` cargo feature.
 
 use std::io::Cursor;
 
@@ -105,7 +106,7 @@ mod tests {
 
     use super::*;
     use crate::devices::ModuleKind;
-    use crate::protocol::image::{image_reports, jpeg_info};
+    use crate::protocol::image::{ChromaSampling, image_reports, jpeg_info};
 
     fn display(kind: ModuleKind) -> DisplaySpec {
         kind.capabilities().display.unwrap()
@@ -140,7 +141,8 @@ mod tests {
             let jpeg = encode_rgba(spec, 300, 200, &gradient(300, 200)).unwrap();
             let info = jpeg_info(&jpeg).unwrap();
             assert_eq!((info.width, info.height), (spec.width, spec.height));
-            assert!(info.baseline && info.components == 3 && !info.subsampled);
+            assert!(info.baseline && info.components == 3);
+            assert_eq!(info.sampling, Some(ChromaSampling::Full));
             // The upload path applies the same checks before sending.
             assert!(image_reports(kind, 0, &jpeg).unwrap().count() > 0);
         }

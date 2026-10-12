@@ -99,16 +99,20 @@ command `0x45`.
   which displays correctly: the byte is not a required constant. CONFIRMED
   (0005).
 - Image format: baseline JPEG, 240 x 240, 4:4:4, not rotated. Sizes seen
-  working: 2.2 kB to 13.4 kB.
+  working: 2.2 kB to 28.1 kB (0019); the real limit is UNKNOWN. Chroma
+  subsampling has not been tried on the dial. Progressive and greyscale
+  JPEGs are not decoded by the 15 LCD Keys and were not tried here.
 - The vendor application redraws the whole display once per second (clock
   face), about 5 ms per frame on the wire.
 
 Confidence: CONFIRMED on the wire (experiments 0001, 0003, 0004) and on
 the display by photo (0005): upright, cropped to the round panel.
 
-SDK: `Module::set_image(0, jpeg)`.
+SDK: `Module::set_image(0, jpeg)`; sends nothing unless the data is a
+baseline 4:4:4 JPEG of exactly 240 x 240 and at most 18 KiB.
 
 ## Not investigated
 
-Feature reports `0x47` `0x49` `0x4a` `0x4c` `0x4d` `0x4e`, animations.
-UNKNOWN.
+Animations. UNKNOWN. The feature reports the vendor application does not
+use were read once; see the table in [README.md](README.md) and experiment
+0018.
