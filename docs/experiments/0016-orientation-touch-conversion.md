@@ -74,3 +74,6 @@ Measured with five modules open, nothing being touched:
 Conclusion: polling no longer costs a timer tick per module: CONFIRMED on
 Windows. Behaviour under a burst of reports is covered by a unit test with
 a scripted transport, not by a hardware measurement.
+
+Superseded by [0029](0029-idle-cost.md): `poll` now sleeps and a thread per
+module waits in the read, so no pass over the modules is made at all.

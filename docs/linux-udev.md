@@ -34,6 +34,13 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 
 Without access `cmh` reports `permission denied opening /dev/hidrawN`.
 
+`Deck` learns of arriving modules from an inotify watch of `/dev`, which
+needs no permission. The kernel creates a node before udev has given the
+user access to it; the deck tries a failed open again for two seconds, and
+again whenever the attributes of a `hidraw` node change, before it reports
+`OpenFailed`. If `/dev` cannot be watched the deck rescans once a second
+instead.
+
 ## Testing from WSL2
 
 WSL2 has no USB access of its own; [usbipd-win](https://github.com/dorssel/usbipd-win)

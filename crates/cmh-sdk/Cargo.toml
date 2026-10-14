@@ -26,3 +26,8 @@ thiserror.workspace = true
 # location of a module.
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
+
+# Already part of the build through hidapi; used directly to watch /dev for
+# hidraw nodes (inotify).
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true

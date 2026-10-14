@@ -402,9 +402,13 @@ fn monitor(select: Select, raw: bool, heartbeat: bool, limit: Option<Duration>) 
     let mut deck = Deck::with_options(options)?;
     let start = Instant::now();
     let stamp = |start: Instant| start.elapsed().as_secs_f64();
+    // Reports are stamped when they were read, not when the poll returned.
+    let read_at = |at: Instant| at.saturating_duration_since(start).as_secs_f64();
 
     while limit.is_none_or(|l| start.elapsed() < l) {
-        for event in deck.poll(Duration::from_millis(100))? {
+        // The poll sleeps until something happens or the time is up.
+        let wait = limit.map_or(Duration::MAX, |l| l.saturating_sub(start.elapsed()));
+        for event in deck.poll(wait)? {
             let t = stamp(start);
             match event {
                 DeckEvent::Connected(info) => println!(
@@ -422,7 +426,10 @@ fn monitor(select: Select, raw: bool, heartbeat: bool, limit: Option<Duration>) 
                     dotted(info.mount_path),
                     cells(info.placement)
                 ),
-                DeckEvent::RawInput { kind, report, .. } => {
+                DeckEvent::RawInput {
+                    kind, report, at, ..
+                } => {
+                    let t = read_at(at);
                     let is_heartbeat = matches!(
                         InputMessage::parse(kind, &report),
                         Ok(InputMessage::Heartbeat { .. })
@@ -431,12 +438,16 @@ fn monitor(select: Select, raw: bool, heartbeat: bool, limit: Option<Duration>) 
                         println!("{}", Record::new(t, kind, Direction::In, &report));
                     }
                 }
-                DeckEvent::Input { kind, event, .. } => {
-                    println!("# {t:9.3} {:<12} {event:?}", kind.name())
-                }
-                DeckEvent::Undecodable { kind, error, .. } => {
-                    println!("# {t:9.3} {:<12} undecodable: {error}", kind.name())
-                }
+                DeckEvent::Input {
+                    kind, event, at, ..
+                } => println!("# {:9.3} {:<12} {event:?}", read_at(at), kind.name()),
+                DeckEvent::Undecodable {
+                    kind, error, at, ..
+                } => println!(
+                    "# {:9.3} {:<12} undecodable: {error}",
+                    read_at(at),
+                    kind.name()
+                ),
                 DeckEvent::OpenFailed {
                     interface, error, ..
                 } => {

@@ -26,6 +26,13 @@ pub(crate) trait Transport: Send {
     fn report_descriptor(&self) -> Result<Vec<u8>>;
 }
 
+/// The input side of a module, on a handle of its own so that a thread can
+/// stay in a read while the module is written to.
+pub(crate) trait InputReader: Send {
+    /// Reads one input report. Returns `Ok(0)` when `timeout` elapses.
+    fn read_input(&mut self, buf: &mut [u8], timeout: Duration) -> Result<usize>;
+}
+
 /// One HID interface belonging to a MasterHUB module.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -152,6 +159,12 @@ fn permission_denied(path: &CStr) -> bool {
 #[cfg(not(unix))]
 fn permission_denied(_path: &CStr) -> bool {
     false
+}
+
+impl InputReader for RawDevice {
+    fn read_input(&mut self, buf: &mut [u8], timeout: Duration) -> Result<usize> {
+        Transport::read_input(self, buf, timeout)
+    }
 }
 
 impl Transport for RawDevice {

@@ -46,6 +46,18 @@ feature `image` adds conversion of PNG / JPEG files and raw pixels to the
 exact JPEG flavour the displays accept. A `Deck` belongs to one thread;
 between polls it is free to send commands.
 
+`Deck::poll` sleeps until a report arrives, the device list changes, the
+timeout is up or a `Deck::waker` is used; an idle deck costs next to
+nothing (about 0.03 % of a core with five modules on Linux, experiment 0029). Each
+open module has a reader thread that waits in a blocking read on a second
+handle of the device, and reports carry the time they were read. On Linux
+the deck learns of arriving and leaving modules from an inotify watch of
+`/dev` and reads the device list only then, once in a minute as a safety
+net, and at the start; `DeckOptions::device_events` and
+`DeckOptions::rescan_interval` change that. On Windows it still rescans
+once a second: the system's device notifications are written but not
+verified on hardware.
+
 Examples: `crates/cmh-sdk/examples`.
 
 ## Layout

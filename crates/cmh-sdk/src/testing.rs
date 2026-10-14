@@ -1,14 +1,14 @@
 //! Test doubles shared by the unit tests.
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::devices::ModuleKind;
 use crate::error::{Error, Result};
 use crate::module::Module;
 use crate::protocol::frame::INPUT_REPORT_LEN;
-use crate::transport::Transport;
+use crate::transport::{InputReader, Transport};
 
 /// Everything a module was asked to do, in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,6 +41,10 @@ pub(crate) struct State {
     pub ignore_backlight: usize,
     /// Software mode commands have no effect.
     pub stuck: bool,
+    /// Readers taken from this mock that are still alive, and those of them
+    /// that wait for a report right now.
+    pub readers: usize,
+    pub blocked: usize,
 }
 
 /// Firmware reports for the mocks of the display modules.
@@ -71,9 +75,10 @@ impl State {
 }
 
 /// A scripted transport. Clones share their state, so a test can keep one
-/// handle while the module owns another.
+/// handle while the module owns another. The second field wakes the readers
+/// when something is pushed.
 #[derive(Clone, Default)]
-pub(crate) struct Mock(pub Arc<Mutex<State>>);
+pub(crate) struct Mock(pub Arc<Mutex<State>>, Arc<Condvar>);
 
 impl Mock {
     pub fn with_features(features: &[&[u8]]) -> Self {
@@ -84,6 +89,7 @@ impl Mock {
 
     pub fn push_input(&self, report: &[u8]) {
         self.0.lock().unwrap().inputs.push_back(report.to_vec());
+        self.1.notify_all();
     }
 
     pub fn sent(&self) -> Vec<Sent> {
@@ -92,6 +98,26 @@ impl Mock {
 
     pub fn unplug(&self) {
         self.0.lock().unwrap().unplugged = true;
+        self.1.notify_all();
+    }
+
+    /// The reading side of this mock, as the deck's reader thread gets it:
+    /// a read waits for a report, for the timeout or for the unplugging.
+    pub fn reader(&self) -> MockReader {
+        self.0.lock().unwrap().readers += 1;
+        MockReader(self.clone())
+    }
+
+    /// Waits until the readers have taken everything that was pushed and
+    /// have passed it on, so that the next poll sees all of it.
+    pub fn settle(&self) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut state = self.0.lock().unwrap();
+        while !(state.inputs.is_empty() && state.blocked == state.readers) {
+            let left = deadline.saturating_duration_since(Instant::now());
+            assert!(!left.is_zero(), "the readers did not settle");
+            state = self.1.wait_timeout(state, left).unwrap().0;
+        }
     }
 
     pub fn module(&self, kind: ModuleKind) -> Module {
@@ -176,5 +202,42 @@ impl Transport for Mock {
     fn report_descriptor(&self) -> Result<Vec<u8>> {
         self.check()?;
         Ok(Vec::new())
+    }
+}
+
+pub(crate) struct MockReader(Mock);
+
+impl Drop for MockReader {
+    fn drop(&mut self) {
+        self.0.0.lock().unwrap().readers -= 1;
+        self.0.1.notify_all();
+    }
+}
+
+impl InputReader for MockReader {
+    fn read_input(&mut self, buf: &mut [u8], timeout: Duration) -> Result<usize> {
+        let Mock(state, wake) = &self.0;
+        let mut state = state.lock().unwrap();
+        state.read_timeouts.push(timeout);
+        let deadline = Instant::now().checked_add(timeout);
+        loop {
+            if state.unplugged {
+                return Err(Error::Disconnected("mock unplugged".to_owned()));
+            }
+            if let Some(report) = state.inputs.pop_front() {
+                buf[..report.len()].copy_from_slice(&report);
+                return Ok(INPUT_REPORT_LEN);
+            }
+            let left = deadline.map_or(Duration::from_secs(3600), |d| {
+                d.saturating_duration_since(Instant::now())
+            });
+            if left.is_zero() {
+                return Ok(0);
+            }
+            state.blocked += 1;
+            wake.notify_all();
+            state = wake.wait_timeout(state, left).unwrap().0;
+            state.blocked -= 1;
+        }
     }
 }

@@ -7,7 +7,7 @@ use crate::error::{Error, Result};
 use crate::location::BASE_CONTROLLER_PATH;
 use crate::module::Module;
 use crate::placement::{self, Placement};
-use crate::transport::{self, HidInterface, RawDevice};
+use crate::transport::{self, HidInterface, InputReader, RawDevice};
 
 /// A module arrived or left between two [`Manager::refresh`] calls.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,6 +96,21 @@ impl Manager {
             interface.serial.clone(),
             Box::new(device),
         ))
+    }
+
+    /// Opens a module together with a second handle for reading its input.
+    ///
+    /// The handles of the HID backend are not safe to use from two threads
+    /// at once, and a read that waits would hold up every write on the same
+    /// handle. The deck therefore reads on one handle, in a thread of its
+    /// own, and writes on the other.
+    pub(crate) fn open_with_reader(
+        &self,
+        interface: &HidInterface,
+    ) -> Result<(Module, Box<dyn InputReader>)> {
+        let module = self.open_interface(interface)?;
+        let reader = RawDevice::open(&self.api, interface)?;
+        Ok((module, Box::new(reader)))
     }
 }
 

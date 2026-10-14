@@ -6,7 +6,8 @@ Legend:
 - **open**: not investigated or not implemented
 - **n/a**: does not apply to this module
 
-Last update: 2026-10-12. Every "done" below was verified on Windows 11.
+Last update: 2026-10-14. Every "done" below was verified on Windows 11,
+except where a row says otherwise.
 On Linux (WSL2 through usbipd-win, experiment 0012) the 3 Knobs and the
 15 LCD Keys were verified for enumeration, feature reads, input, LEDs,
 images, brightness and hot-plug. On a natively installed Linux (experiment
@@ -49,7 +50,8 @@ being seated (experiment 0011).
 
 | Part | Status |
 |---|---|
-| `Deck`: discovery, hot-plug, one event stream, commands by module ID | done on hardware (Windows; on Linux across a power cycle, experiment 0021), poll timing measured (experiment 0016); logic covered by tests with a scripted backend |
+| `Deck`: discovery, hot-plug, one event stream, commands by module ID | done on hardware (Windows; on Linux across a power cycle, experiment 0021); logic covered by tests with a scripted backend. Input is read by a thread per module and `poll` sleeps (experiment 0029): idle cost and ordered, timed heartbeats measured on Linux (open: presses, Windows) |
+| `Deck`: discovery by announcement of the system (`DeckOptions::device_events`) | Linux (inotify on `/dev`): the watch is tested, the idle cost measured, an arrival or departure seen by it open (experiment 0029). Windows (device interface notifications): written, compiles, never run, off by default (open) |
 | `Manager` / `Module`: listing and single-module access | done |
 | `placement`: cells and rotation | done |
 | `picture` (cargo feature `image`): PNG / JPEG / pixels to the displays' JPEG | done on the keys; conversion output is checked against the upload rules in tests |
@@ -107,3 +109,8 @@ being seated (experiment 0011).
     after its colour picker is closed, is understood (experiment 0027) and
     deliberately not offered: it is a write to the module's permanent
     memory, and only the colour is kept.
+11. The event-driven deck (experiment 0029) on a real re-plug on Linux, and
+    on Windows altogether: the device notifications, a second handle on a
+    module opened by the same process, the reader threads, and the end of
+    a read when a module is pulled. The Faders and a second unit of a model
+    were not on the machine.

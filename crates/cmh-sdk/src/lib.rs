@@ -8,6 +8,7 @@
 //! - [`protocol`]: packet encoding and decoding, free of I/O
 //! - [`input`]: typed input events
 //! - `transport` (private): HID enumeration and raw report I/O
+//! - `watch` (private): the system's announcements of arriving and leaving devices
 //! - [`module`]: typed operations on one open module
 //! - [`manager`]: discovery and hot-plug tracking
 //! - [`deck`]: all modules as one event stream; start here
@@ -48,8 +49,9 @@ pub mod protocol;
 #[cfg(test)]
 mod testing;
 mod transport;
+mod watch;
 
-pub use deck::{Deck, DeckEvent, DeckOptions, ModuleId, ModuleInfo};
+pub use deck::{Deck, DeckEvent, DeckOptions, DeckWaker, ModuleId, ModuleInfo};
 pub use devices::{Capabilities, DisplaySpec, ModuleKind, VENDOR_ID};
 pub use error::{Error, Result};
 pub use input::{InputDecoder, InputEvent};

@@ -12,7 +12,7 @@
 | Report | ID `0x01`, tag `0x2b` (channel 1), payload length 1 |
 | Trigger | spontaneous, every ~516 ms, with or without the vendor application |
 | Payload | one byte: `01` base lying flat, `00` base standing upright on its short side |
-| Confidence | CONFIRMED (experiments 0001, 0003, 0016) |
+| Confidence | CONFIRMED (experiments 0001, 0003, 0016; the interval 515.6 ms, standard deviation 0.9 ms over 116 reports, in 0029) |
 
 ```text
 01 2b 01 00 01 00 .. 00

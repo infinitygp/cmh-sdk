@@ -23,6 +23,9 @@
 //! ```
 
 use std::fmt;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
 use crate::devices::ModuleKind;
@@ -31,7 +34,9 @@ use crate::input::InputEvent;
 use crate::manager::{self, Manager};
 use crate::module::Module;
 use crate::placement::{self, Placement};
-use crate::transport::HidInterface;
+use crate::protocol::frame::INPUT_REPORT_LEN;
+use crate::transport::{HidInterface, InputReader};
+use crate::watch;
 
 /// Identity of a module: its USB serial number, which stays the same
 /// wherever the module is mounted and across restarts.
@@ -111,6 +116,12 @@ pub enum DeckEvent {
         id: ModuleId,
         kind: ModuleKind,
         event: InputEvent,
+        /// When the report was read from the module, by the thread that
+        /// waits for it, not when [`Deck::poll`] handed it over. The events
+        /// of one report share the time. The positions and the orientation
+        /// sent right after [`Connected`](DeckEvent::Connected) carry the
+        /// time of connecting.
+        at: Instant,
     },
     /// A raw input report; only with [`DeckOptions::raw_reports`].
     #[non_exhaustive]
@@ -118,6 +129,8 @@ pub enum DeckEvent {
         id: ModuleId,
         kind: ModuleKind,
         report: Vec<u8>,
+        /// When the report was read, as for [`Input`](DeckEvent::Input).
+        at: Instant,
     },
     /// An input report could not be decoded. The module stays usable.
     #[non_exhaustive]
@@ -125,11 +138,15 @@ pub enum DeckEvent {
         id: ModuleId,
         kind: ModuleKind,
         error: Error,
+        /// When the report was read, as for [`Input`](DeckEvent::Input).
+        at: Instant,
     },
     /// A listed module could not be opened or, for a display module, did
     /// not confirm software mode. Reported once; the deck keeps retrying on
-    /// every rescan. On Linux this can show up once right after plugging,
-    /// before udev has applied the access rule.
+    /// every rescan and, with device events, whenever the system says the
+    /// device list changed. On Linux a failure that goes away within two
+    /// seconds of the device appearing (udev has not applied the access rule
+    /// yet) is not reported.
     #[non_exhaustive]
     OpenFailed {
         id: ModuleId,
@@ -140,11 +157,37 @@ pub enum DeckEvent {
 
 type Filter = Box<dyn Fn(&HidInterface) -> bool + Send>;
 
+/// How often the device list is looked at when nothing announces changes.
+const POLLING_RESCAN: Duration = Duration::from_secs(1);
+/// How often it is looked at when the system announces changes: a safety
+/// net for an announcement that was missed.
+const SAFETY_RESCAN: Duration = Duration::from_secs(60);
+/// How long to collect more announcements of one burst (a module that is
+/// plugged in appears as several nodes, each changing twice) before the
+/// device list is read.
+const SETTLE: Duration = Duration::from_millis(25);
+/// How long a module whose reader has ended waits before the device list is
+/// read again. Bounds the pace of a module that connects and fails at once.
+const RECONNECT_PAUSE: Duration = Duration::from_secs(1);
+/// With device events a node is announced when it appears, usually before
+/// udev has given the user access to it. An open that fails is tried again
+/// after this long, for [`OPEN_RETRY_WINDOW`], before it is reported.
+const OPEN_RETRY_PAUSE: Duration = Duration::from_millis(250);
+const OPEN_RETRY_WINDOW: Duration = Duration::from_secs(2);
+/// The longest a reader thread stays in one read. It looks at its stop flag
+/// between reads, so this is also how long a thread outlives its deck; a
+/// module that goes away ends the read at once.
+#[cfg(windows)]
+const READ_WAIT: Duration = Duration::from_millis(250);
+#[cfg(not(windows))]
+const READ_WAIT: Duration = Duration::from_secs(2);
+
 /// Behaviour of a [`Deck`].
 pub struct DeckOptions {
     software_mode: bool,
     raw_reports: bool,
-    rescan: Duration,
+    rescan: Option<Duration>,
+    device_events: bool,
     filter: Option<Filter>,
 }
 
@@ -154,6 +197,7 @@ impl fmt::Debug for DeckOptions {
             .field("software_mode", &self.software_mode)
             .field("raw_reports", &self.raw_reports)
             .field("rescan", &self.rescan)
+            .field("device_events", &self.device_events)
             .field("filter", &self.filter.is_some())
             .finish()
     }
@@ -164,7 +208,10 @@ impl Default for DeckOptions {
         Self {
             software_mode: true,
             raw_reports: false,
-            rescan: Duration::from_secs(1),
+            rescan: None,
+            // The Windows source is written but not verified on hardware
+            // yet (experiment 0029).
+            device_events: cfg!(target_os = "linux"),
             filter: None,
         }
     }
@@ -191,11 +238,30 @@ impl DeckOptions {
         self
     }
 
-    /// How often the device list is checked for arrivals and departures.
-    /// Default: once per second; never less than
+    /// How often the device list is read to find arrivals and departures,
+    /// whatever else happens; never less than
     /// [`MIN_RESCAN_INTERVAL`](Self::MIN_RESCAN_INTERVAL).
+    ///
+    /// Without device events (see [`device_events`](Self::device_events))
+    /// this is how late an arrival or a departure can be noticed. Default:
+    /// once per second. With them it only guards against an announcement
+    /// that never came, and the default is once per minute.
     pub fn rescan_interval(mut self, interval: Duration) -> Self {
-        self.rescan = interval.max(Self::MIN_RESCAN_INTERVAL);
+        self.rescan = Some(interval.max(Self::MIN_RESCAN_INTERVAL));
+        self
+    }
+
+    /// Whether the deck asks the operating system to announce arriving and
+    /// leaving devices instead of reading the device list on a timer. The
+    /// list is then read once at the start and after an announcement. Default:
+    /// `true` on Linux, `false` elsewhere. If the system cannot provide the
+    /// announcements, the deck falls back to the timer.
+    ///
+    /// On Linux the source is an inotify watch of `/dev`. On Windows it is a
+    /// device interface notification for the HID class, which has not been
+    /// verified on hardware yet (`docs/experiments/0029-idle-cost.md`).
+    pub fn device_events(mut self, enabled: bool) -> Self {
+        self.device_events = enabled;
         self
     }
 
@@ -209,7 +275,13 @@ impl DeckOptions {
 /// Source of modules; hidapi in production, scripted in tests.
 pub(crate) trait Backend: Send {
     fn scan(&mut self) -> Result<Vec<HidInterface>>;
-    fn open(&self, interface: &HidInterface) -> Result<Module>;
+    /// Opens a module and a second handle that only reads its input.
+    fn open(&self, interface: &HidInterface) -> Result<(Module, Box<dyn InputReader>)>;
+    /// Starts calling `changed` when the device list may have changed.
+    /// Dropping the returned guard stops it. `None`: no such source.
+    fn watch(&self, _changed: Box<dyn Fn() + Send + Sync>) -> Option<Box<dyn Send>> {
+        None
+    }
 }
 
 impl Backend for Manager {
@@ -218,27 +290,129 @@ impl Backend for Manager {
         Ok(self.modules().to_vec())
     }
 
-    fn open(&self, interface: &HidInterface) -> Result<Module> {
-        self.open_interface(interface)
+    fn open(&self, interface: &HidInterface) -> Result<(Module, Box<dyn InputReader>)> {
+        self.open_with_reader(interface)
+    }
+
+    fn watch(&self, changed: Box<dyn Fn() + Send + Sync>) -> Option<Box<dyn Send>> {
+        watch::start(changed).map(|watch| Box::new(watch) as Box<dyn Send>)
+    }
+}
+
+/// What the threads of a deck tell it, in the order they happened.
+#[derive(Debug)]
+enum Msg {
+    /// A reader thread read a report.
+    Report {
+        slot: u64,
+        at: Instant,
+        report: Vec<u8>,
+    },
+    /// A reader thread stopped: its module is gone.
+    ReaderEnded { slot: u64 },
+    /// The system says the device list may have changed.
+    DevicesChanged,
+    /// A [`DeckWaker`] was used.
+    Wake,
+}
+
+/// Wakes a [`Deck::poll`] from another thread, so that its caller can look
+/// at something else the moment it happens instead of when the poll times
+/// out. Obtained from [`Deck::waker`].
+#[derive(Debug, Clone)]
+pub struct DeckWaker(Sender<Msg>);
+
+impl DeckWaker {
+    /// Makes the poll that is waiting, or if none is, the next one, return
+    /// at once with whatever it has, which may be nothing. Does nothing once
+    /// the deck is gone.
+    pub fn wake(&self) {
+        let _ = self.0.send(Msg::Wake);
+    }
+}
+
+/// Lets a reader thread end when the slot is dropped.
+struct StopFlag(Arc<AtomicBool>);
+
+impl Drop for StopFlag {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
     }
 }
 
 struct Slot {
+    /// Tells this slot's reports from those of an earlier one for the same
+    /// module.
+    id: u64,
     info: ModuleInfo,
     module: Module,
+    _reader: StopFlag,
+}
+
+/// Reads reports from `reader` until its module is gone or the flag is set,
+/// and passes them on with the time they were read.
+fn spawn_reader(mut reader: Box<dyn InputReader>, slot: u64, to: Sender<Msg>) -> Result<StopFlag> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let flag = stop.clone();
+    std::thread::Builder::new()
+        .name("cmh-reader".to_owned())
+        .spawn(move || {
+            let mut buf = [0u8; INPUT_REPORT_LEN];
+            while !flag.load(Ordering::Relaxed) {
+                match reader.read_input(&mut buf, READ_WAIT) {
+                    Ok(0) => {}
+                    Ok(len) => {
+                        let at = Instant::now();
+                        let report = buf[..len.min(INPUT_REPORT_LEN)].to_vec();
+                        if to.send(Msg::Report { slot, at, report }).is_err() {
+                            return;
+                        }
+                    }
+                    Err(_) => {
+                        let _ = to.send(Msg::ReaderEnded { slot });
+                        return;
+                    }
+                }
+            }
+        })
+        .map_err(|err| Error::Backend(format!("cannot start a reader thread: {err}")))?;
+    Ok(StopFlag(stop))
+}
+
+/// `now` plus `by`, without overflowing for an interval of "never".
+fn after(by: Duration) -> Instant {
+    let now = Instant::now();
+    now.checked_add(by)
+        .unwrap_or_else(|| now + Duration::from_secs(365 * 24 * 3600))
 }
 
 /// Everything that is connected, opened and polled together.
 ///
 /// A deck is meant to live on one thread: call [`poll`](Self::poll) in a
 /// loop and send commands through [`module`](Self::module) between polls.
+/// Input is read by a thread per open module, which waits in the read and
+/// costs nothing while a module is quiet; reports queue up in memory until
+/// the next poll.
 pub struct Deck {
     backend: Box<dyn Backend>,
     options: DeckOptions,
     slots: Vec<Slot>,
     /// Modules whose open error has been reported and not yet resolved.
     failed: Vec<HidInterface>,
-    last_scan: Option<Instant>,
+    /// Modules whose open failed, with the time of the first failure, while
+    /// the error is held back (device events only).
+    retrying: Vec<(HidInterface, Instant)>,
+    /// When the device list is read next; `None`: at the next poll.
+    next_scan: Option<Instant>,
+    /// Set while the system announces device changes.
+    watch: Option<Box<dyn Send>>,
+    woken: bool,
+    next_slot: u64,
+    sender: Sender<Msg>,
+    receiver: Receiver<Msg>,
+    /// Passes of the loop in `poll`, for the tests that check it does not spin.
+    #[cfg(test)]
+    passes: usize,
 }
 
 impl fmt::Debug for Deck {
@@ -265,12 +439,28 @@ impl Deck {
     }
 
     pub(crate) fn with_backend(backend: Box<dyn Backend>, options: DeckOptions) -> Self {
+        let (sender, receiver) = mpsc::channel();
+        // Before the first scan, so that nothing between the two is missed.
+        let watch = options.device_events.then(|| {
+            let sender = sender.clone();
+            backend.watch(Box::new(move || {
+                let _ = sender.send(Msg::DevicesChanged);
+            }))
+        });
         Self {
             backend,
             options,
             slots: Vec::new(),
             failed: Vec::new(),
-            last_scan: None,
+            retrying: Vec::new(),
+            next_scan: None,
+            watch: watch.flatten(),
+            woken: false,
+            next_slot: 0,
+            sender,
+            receiver,
+            #[cfg(test)]
+            passes: 0,
         }
     }
 
@@ -296,47 +486,123 @@ impl Deck {
             .map(|s| &s.module)
     }
 
+    /// A handle that makes [`poll`](Self::poll) return early, for a caller
+    /// that also waits for something else and has to be woken by it.
+    pub fn waker(&self) -> DeckWaker {
+        DeckWaker(self.sender.clone())
+    }
+
     /// Waits up to `timeout` for something to happen and returns it.
     ///
     /// Returns as soon as there is at least one event; an empty list means
-    /// the timeout elapsed. `Duration::ZERO` checks once without waiting,
-    /// `Duration::MAX` waits for as long as it takes. Fails only when the
-    /// HID backend itself does; problems with single modules are events.
+    /// the timeout elapsed or a [`DeckWaker`] was used. `Duration::ZERO`
+    /// checks once without waiting, `Duration::MAX` waits for as long as it
+    /// takes. Fails only when the HID backend itself does; problems with
+    /// single modules are events.
+    ///
+    /// The thread sleeps until a report, a device change, the next rescan or
+    /// the timeout, whichever is first.
     pub fn poll(&mut self, timeout: Duration) -> Result<Vec<DeckEvent>> {
-        // Pause between two passes over the modules. Reads themselves never
-        // block: a blocking wait costs a whole timer tick per idle module on
-        // Windows.
-        const PAUSE: Duration = Duration::from_millis(2);
-        const IDLE_PAUSE: Duration = Duration::from_millis(20);
-
         let deadline = Instant::now().checked_add(timeout);
         let mut events = Vec::new();
         loop {
-            if self
-                .last_scan
-                .is_none_or(|t| t.elapsed() >= self.options.rescan)
+            #[cfg(test)]
             {
-                self.last_scan = Some(Instant::now());
+                self.passes += 1;
+            }
+            // Before the rescan: a module that leaves hands over what it
+            // sent last.
+            self.drain(&mut events);
+            if self.next_scan.is_none_or(|t| t <= Instant::now()) {
+                self.next_scan = Some(after(self.rescan_interval()));
                 self.rescan(&mut events)?;
             }
-            self.read_all(&mut events);
-            if !events.is_empty() {
+            if self.woken || !events.is_empty() {
+                self.woken = false;
                 return Ok(events);
             }
 
-            let mut pause = if self.slots.is_empty() {
-                IDLE_PAUSE
-            } else {
-                PAUSE
-            };
+            let now = Instant::now();
+            let mut wait = self
+                .next_scan
+                .map_or(Duration::ZERO, |t| t.saturating_duration_since(now));
             if let Some(deadline) = deadline {
-                let now = Instant::now();
                 if now >= deadline {
                     return Ok(events);
                 }
-                pause = pause.min(deadline - now);
+                wait = wait.min(deadline - now);
             }
-            std::thread::sleep(pause);
+            // The deck holds a sender itself, so this only ever times out.
+            if let Ok(msg) = self.receiver.recv_timeout(wait) {
+                self.apply(msg, &mut events);
+            }
+        }
+    }
+
+    fn rescan_interval(&self) -> Duration {
+        self.options.rescan.unwrap_or(if self.watch.is_some() {
+            SAFETY_RESCAN
+        } else {
+            POLLING_RESCAN
+        })
+    }
+
+    /// Brings the next read of the device list forward to `pause` from now.
+    fn scan_within(&mut self, pause: Duration) {
+        let due = after(pause);
+        self.next_scan = self.next_scan.map(|t| t.min(due));
+    }
+
+    fn drain(&mut self, events: &mut Vec<DeckEvent>) {
+        while let Ok(msg) = self.receiver.try_recv() {
+            self.apply(msg, events);
+        }
+    }
+
+    fn apply(&mut self, msg: Msg, events: &mut Vec<DeckEvent>) {
+        match msg {
+            Msg::Wake => self.woken = true,
+            Msg::DevicesChanged => self.scan_within(SETTLE),
+            Msg::ReaderEnded { slot } => {
+                // Already gone if a rescan was first.
+                if let Some(index) = self.slots.iter().position(|s| s.id == slot) {
+                    // A module that is still (or again) listed is reopened
+                    // by the rescan and announced with a fresh `Connected`.
+                    events.push(DeckEvent::Disconnected(self.slots.remove(index).info));
+                    self.scan_within(RECONNECT_PAUSE);
+                }
+            }
+            Msg::Report { slot, at, report } => {
+                // Nothing to do for a slot that was dropped meanwhile.
+                let Some(slot) = self.slots.iter_mut().find(|s| s.id == slot) else {
+                    return;
+                };
+                let (id, kind) = (&slot.info.id, slot.info.kind);
+                if self.options.raw_reports {
+                    events.push(DeckEvent::RawInput {
+                        id: id.clone(),
+                        kind,
+                        report: report.clone(),
+                        at,
+                    });
+                }
+                match slot.module.decode(&report) {
+                    Ok(decoded) => {
+                        events.extend(decoded.into_iter().map(|event| DeckEvent::Input {
+                            id: id.clone(),
+                            kind,
+                            event,
+                            at,
+                        }))
+                    }
+                    Err(error) => events.push(DeckEvent::Undecodable {
+                        id: id.clone(),
+                        kind,
+                        error,
+                        at,
+                    }),
+                }
+            }
         }
     }
 
@@ -355,6 +621,9 @@ impl Deck {
 
     fn rescan(&mut self, events: &mut Vec<DeckEvent>) -> Result<()> {
         let listed = self.backend.scan()?;
+        // What a module sent while the list was read comes before what the
+        // list says about the module.
+        self.drain(events);
         let wanted: Vec<&HidInterface> = listed
             .iter()
             .filter(|i| self.options.filter.as_ref().is_none_or(|keep| keep(i)))
@@ -368,6 +637,7 @@ impl Deck {
         self.slots = kept;
         events.extend(gone.into_iter().map(|s| DeckEvent::Disconnected(s.info)));
         self.failed.retain(|f| is_listed(f));
+        self.retrying.retain(|(r, _)| is_listed(r));
 
         for interface in wanted {
             let known = self
@@ -388,7 +658,7 @@ impl Deck {
             }
             let mut info = Self::describe(&listed, interface);
             match self.open(interface) {
-                Ok((module, initial)) => {
+                Ok((module, reader, initial)) => {
                     if self.options.software_mode && info.kind.capabilities().display.is_some() {
                         match self.relisted(interface)? {
                             Some(current) => info = current,
@@ -396,32 +666,82 @@ impl Deck {
                             None => continue,
                         }
                     }
-                    self.failed.retain(|f| !manager::same_module(f, interface));
-                    events.push(DeckEvent::Connected(info.clone()));
-                    events.extend(initial.into_iter().map(|event| DeckEvent::Input {
-                        id: info.id.clone(),
-                        kind: info.kind,
-                        event,
-                    }));
-                    self.slots.push(Slot { info, module });
-                }
-                Err(error) => {
-                    if !self
-                        .failed
-                        .iter()
-                        .any(|f| manager::same_module(f, interface))
-                    {
-                        self.failed.push(interface.clone());
-                        events.push(DeckEvent::OpenFailed {
-                            id: info.id,
-                            interface: interface.clone(),
-                            error,
-                        });
+                    let id = self.next_slot;
+                    match spawn_reader(reader, id, self.sender.clone()) {
+                        Ok(reader) => {
+                            self.next_slot += 1;
+                            self.failed.retain(|f| !manager::same_module(f, interface));
+                            self.retrying
+                                .retain(|(r, _)| !manager::same_module(r, interface));
+                            events.push(DeckEvent::Connected(info.clone()));
+                            let at = Instant::now();
+                            events.extend(initial.into_iter().map(|event| DeckEvent::Input {
+                                id: info.id.clone(),
+                                kind: info.kind,
+                                event,
+                                at,
+                            }));
+                            self.slots.push(Slot {
+                                id,
+                                info,
+                                module,
+                                _reader: reader,
+                            });
+                        }
+                        Err(error) => self.open_failed(interface, info.id, error, events),
                     }
                 }
+                Err(error) => self.open_failed(interface, info.id, error, events),
             }
         }
         Ok(())
+    }
+
+    /// Reports a failed open once, unless it may go away by itself.
+    fn open_failed(
+        &mut self,
+        interface: &HidInterface,
+        id: ModuleId,
+        error: Error,
+        events: &mut Vec<DeckEvent>,
+    ) {
+        if self
+            .failed
+            .iter()
+            .any(|f| manager::same_module(f, interface))
+        {
+            return;
+        }
+        // With device events the open is tried while the node is still new,
+        // usually before udev has applied the access rule, so a failure is
+        // held back for a short while. Without them the next timer rescan
+        // is the retry.
+        if self.watch.is_some() {
+            let first = match self
+                .retrying
+                .iter()
+                .find(|(r, _)| manager::same_module(r, interface))
+            {
+                Some((_, first)) => *first,
+                None => {
+                    let now = Instant::now();
+                    self.retrying.push((interface.clone(), now));
+                    now
+                }
+            };
+            if first.elapsed() < OPEN_RETRY_WINDOW {
+                self.scan_within(OPEN_RETRY_PAUSE);
+                return;
+            }
+            self.retrying
+                .retain(|(r, _)| !manager::same_module(r, interface));
+        }
+        self.failed.push(interface.clone());
+        events.push(DeckEvent::OpenFailed {
+            id,
+            interface: interface.clone(),
+            error,
+        });
     }
 
     /// Describes a display module from a fresh listing, taken after software
@@ -450,10 +770,13 @@ impl Deck {
             .map(|current| Self::describe(&listed, current)))
     }
 
-    /// Opens and prepares a module; returns it with the events that describe
-    /// its initial state.
-    fn open(&self, interface: &HidInterface) -> Result<(Module, Vec<InputEvent>)> {
-        let mut module = self.backend.open(interface)?;
+    /// Opens and prepares a module; returns it with the handle its input is
+    /// read on and the events that describe its initial state.
+    fn open(
+        &self,
+        interface: &HidInterface,
+    ) -> Result<(Module, Box<dyn InputReader>, Vec<InputEvent>)> {
+        let (mut module, reader) = self.backend.open(interface)?;
         let capabilities = interface.kind.capabilities();
         if self.options.software_mode && capabilities.display.is_some() {
             module.set_software_mode(true)?;
@@ -471,54 +794,7 @@ impl Deck {
                 }));
             }
         }
-        Ok((module, initial))
-    }
-
-    fn read_all(&mut self, events: &mut Vec<DeckEvent>) {
-        // Enough to empty the report queue the HID backend keeps per device.
-        const MAX_REPORTS_PER_PASS: usize = 64;
-
-        let mut lost = Vec::new();
-        for (index, slot) in self.slots.iter_mut().enumerate() {
-            let (id, kind) = (&slot.info.id, slot.info.kind);
-            for _ in 0..MAX_REPORTS_PER_PASS {
-                let report = match slot.module.read_raw(Duration::ZERO) {
-                    Ok(Some(report)) => report,
-                    Ok(None) => break,
-                    Err(_) => {
-                        lost.push(index);
-                        break;
-                    }
-                };
-                if self.options.raw_reports {
-                    events.push(DeckEvent::RawInput {
-                        id: id.clone(),
-                        kind,
-                        report: report.clone(),
-                    });
-                }
-                match slot.module.decode(&report) {
-                    Ok(decoded) => {
-                        events.extend(decoded.into_iter().map(|event| DeckEvent::Input {
-                            id: id.clone(),
-                            kind,
-                            event,
-                        }))
-                    }
-                    Err(error) => events.push(DeckEvent::Undecodable {
-                        id: id.clone(),
-                        kind,
-                        error,
-                    }),
-                }
-            }
-        }
-        // A module that is still (or again) listed is reopened by the next
-        // rescan and announced with a fresh `Connected`.
-        for index in lost.into_iter().rev() {
-            let slot = self.slots.remove(index);
-            events.push(DeckEvent::Disconnected(slot.info));
-        }
+        Ok((module, reader, initial))
     }
 }
 
@@ -530,6 +806,8 @@ mod tests {
     use super::*;
     use crate::testing::{DIAL_FIRMWARE, KEYS_FIRMWARE, Mock, Sent};
 
+    type OnChange = Arc<dyn Fn() + Send + Sync>;
+
     /// What the fake bus currently lists, and the transport behind each path.
     #[derive(Default)]
     struct Bus {
@@ -540,6 +818,9 @@ mod tests {
         /// Serial listed instead of the real one while the module behind
         /// the path is in the state an empty read leaves (experiment 0024).
         garbled: Vec<(CString, String)>,
+        /// Whether the bus announces changes, and whom to tell.
+        events: bool,
+        on_change: Option<OnChange>,
     }
 
     #[derive(Clone, Default)]
@@ -563,7 +844,15 @@ mod tests {
             Ok(listed)
         }
 
-        fn open(&self, interface: &HidInterface) -> Result<Module> {
+        fn watch(&self, changed: Box<dyn Fn() + Send + Sync>) -> Option<Box<dyn Send>> {
+            let mut bus = self.0.lock().unwrap();
+            bus.events.then(|| {
+                bus.on_change = Some(changed.into());
+                Box::new(()) as Box<dyn Send>
+            })
+        }
+
+        fn open(&self, interface: &HidInterface) -> Result<(Module, Box<dyn InputReader>)> {
             let bus = self.0.lock().unwrap();
             if bus.refuse.contains(&interface.path) {
                 return Err(Error::PermissionDenied {
@@ -579,10 +868,13 @@ mod tests {
             if mock.0.lock().unwrap().unplugged {
                 return Err(Error::Disconnected("mock unplugged".to_owned()));
             }
-            Ok(Module::new(
-                interface.kind,
-                interface.serial.clone(),
-                Box::new(mock.clone()),
+            Ok((
+                Module::new(
+                    interface.kind,
+                    interface.serial.clone(),
+                    Box::new(mock.clone()),
+                ),
+                Box::new(mock.reader()),
             ))
         }
     }
@@ -612,10 +904,28 @@ mod tests {
             bus.listed.retain(|i| i.serial.as_deref() != Some(serial));
         }
 
+        /// A deck that rescans on every poll, so that tests need no waiting.
+        /// The bus announces nothing, as on a platform without events.
         fn deck(&self, mut options: DeckOptions) -> Deck {
-            // Rescan on every poll so that tests need no waiting.
-            options.rescan = Duration::ZERO;
+            options.rescan = Some(Duration::ZERO);
+            options.device_events = false;
             Deck::with_backend(Box::new(self.clone()), options)
+        }
+
+        /// A deck on a bus that announces changes (see [`Self::changed`]).
+        fn event_deck(&self, options: DeckOptions) -> Deck {
+            self.0.lock().unwrap().events = true;
+            Deck::with_backend(Box::new(self.clone()), options.device_events(true))
+        }
+
+        /// The system says the device list changed.
+        fn changed(&self) {
+            let on_change = self.0.lock().unwrap().on_change.clone();
+            (on_change.expect("no deck listens"))();
+        }
+
+        fn scans(&self) -> usize {
+            self.0.lock().unwrap().scans
         }
     }
 
@@ -768,6 +1078,7 @@ mod tests {
         assert_eq!(summary(&poll(&mut deck)), ["+F"]);
         // The first movement then reports every fader.
         faders.push_input(&[0x01, 0x2a, 0x07, 0x00, 0x02, 0x05, 1, 2, 3, 4, 5]);
+        faders.settle();
         assert_eq!(poll(&mut deck).len(), 5);
     }
 
@@ -779,33 +1090,96 @@ mod tests {
         poll(&mut deck);
 
         knobs.push_input(&KNOB_STEP);
+        knobs.settle();
         assert_eq!(
             summary(&poll(&mut deck)),
             ["N:raw64", "N:EncoderDelta { index: 2, delta: 1 }"]
         );
         // A report that cannot be decoded does not cost the module.
         knobs.push_input(&[0x01, 0x2a, 0x05, 0x00, 0x00, 0x03, 0x09, 0xff, 0xff]);
+        knobs.settle();
         assert_eq!(summary(&poll(&mut deck)), ["N:raw64", "N:undecodable"]);
         assert_eq!(deck.modules().count(), 1);
         assert!(poll(&mut deck).is_empty());
     }
 
+    /// A report that moves knob `index` one step: the other two do not.
+    fn knob_step(index: usize) -> [u8; 9] {
+        let mut report = KNOB_STEP;
+        report[6..9].copy_from_slice(&[0xff; 3]);
+        report[6 + index] = 0x01;
+        report
+    }
+
     #[test]
-    fn one_poll_drains_a_burst_without_blocking_reads() {
+    fn one_poll_hands_over_a_burst_in_the_order_it_was_sent() {
         let bus = FakeBackend::default();
         let knobs = bus.plug(ModuleKind::Knobs3, "N", &[1]);
         bus.plug(ModuleKind::Rollers2, "R", &[2]);
         let mut deck = bus.deck(DeckOptions::default());
         poll(&mut deck);
 
-        for _ in 0..10 {
-            knobs.push_input(&KNOB_STEP);
+        let order = [0, 1, 2, 2, 1, 0, 1, 2, 0, 0];
+        for index in order {
+            knobs.push_input(&knob_step(index));
         }
-        assert_eq!(poll(&mut deck).len(), 10);
-        // A blocking read on an idle module costs a timer tick on Windows.
+        knobs.settle();
+        let events = poll(&mut deck);
+        let seen: Vec<usize> = events
+            .iter()
+            .map(|e| match e {
+                DeckEvent::Input {
+                    event: InputEvent::EncoderDelta { index, .. },
+                    ..
+                } => *index as usize,
+                other => panic!("unexpected {other:?}"),
+            })
+            .collect();
+        assert_eq!(seen, order);
+        // Each read happens before the next one.
+        let times: Vec<Instant> = events
+            .iter()
+            .map(|e| match e {
+                DeckEvent::Input { at, .. } => *at,
+                _ => unreachable!(),
+            })
+            .collect();
+        assert!(times.windows(2).all(|pair| pair[0] <= pair[1]));
+    }
+
+    #[test]
+    fn a_report_carries_the_time_it_was_read_not_the_time_of_the_poll() {
+        let bus = FakeBackend::default();
+        let knobs = bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let mut deck = bus.deck(DeckOptions::default().raw_reports(true));
+        poll(&mut deck);
+
+        let before = Instant::now();
+        knobs.push_input(&KNOB_STEP);
+        knobs.settle();
+        let settled = Instant::now();
+        std::thread::sleep(Duration::from_millis(60));
+        let events = poll(&mut deck);
+        assert_eq!(events.len(), 2);
+        for event in &events {
+            let (DeckEvent::Input { at, .. } | DeckEvent::RawInput { at, .. }) = event else {
+                panic!("unexpected {event:?}");
+            };
+            assert!(*at >= before && *at <= settled, "{:?}", at.elapsed());
+        }
+    }
+
+    #[test]
+    fn readers_wait_in_blocking_reads() {
+        let bus = FakeBackend::default();
+        let knobs = bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let mut deck = bus.deck(DeckOptions::default());
+        poll(&mut deck);
+        knobs.settle();
+        // A read that returns at once on an idle module would be polling.
         let timeouts = knobs.0.lock().unwrap().read_timeouts.clone();
-        assert!(!timeouts.is_empty());
-        assert!(timeouts.iter().all(|t| t.is_zero()));
+        assert_eq!(timeouts.len(), 1);
+        assert!(timeouts[0] >= Duration::from_millis(100));
     }
 
     #[test]
@@ -825,11 +1199,13 @@ mod tests {
         let mut deck = bus.deck(DeckOptions::default());
         poll(&mut deck);
 
-        // The handle dies first; the bus still lists the module.
+        // The handle dies first; the bus still lists the module. The reader
+        // ends and reports it, and the rescan that is due on this poll tries
+        // to open the module again.
         knobs.unplug();
-        assert_eq!(summary(&poll(&mut deck)), ["-N"]);
+        knobs.settle();
+        assert_eq!(summary(&poll(&mut deck)), ["-N", "!N"]);
         // Still unusable: reported once, then retried silently.
-        assert_eq!(summary(&poll(&mut deck)), ["!N"]);
         assert!(poll(&mut deck).is_empty());
 
         bus.unplug("N");
@@ -1019,15 +1395,245 @@ mod tests {
         let bus = FakeBackend::default();
         let mut deck = Deck::with_backend(
             Box::new(bus.clone()),
-            DeckOptions::default().rescan_interval(Duration::from_secs(3600)),
+            DeckOptions::default()
+                .device_events(false)
+                .rescan_interval(Duration::from_secs(3600)),
         );
         for _ in 0..5 {
             deck.poll(Duration::ZERO).unwrap();
         }
-        assert_eq!(bus.0.lock().unwrap().scans, 1);
+        assert_eq!(bus.scans(), 1);
         // The builder refuses to rescan on every pass.
         let options = DeckOptions::default().rescan_interval(Duration::ZERO);
-        assert_eq!(options.rescan, DeckOptions::MIN_RESCAN_INTERVAL);
+        assert_eq!(options.rescan, Some(DeckOptions::MIN_RESCAN_INTERVAL));
+    }
+
+    const SECOND: Duration = Duration::from_secs(1);
+
+    #[test]
+    fn the_default_rescan_depends_on_whether_the_system_announces_changes() {
+        let bus = FakeBackend::default();
+        let polling = Deck::with_backend(Box::new(bus.clone()), DeckOptions::default());
+        // No source on this bus, so the timer has to do the work.
+        assert_eq!(polling.rescan_interval(), POLLING_RESCAN);
+        let events = bus.event_deck(DeckOptions::default());
+        assert_eq!(events.rescan_interval(), SAFETY_RESCAN);
+        // What was asked for wins in both cases.
+        let asked = DeckOptions::default().rescan_interval(Duration::from_secs(7));
+        assert_eq!(
+            bus.event_deck(asked).rescan_interval(),
+            Duration::from_secs(7)
+        );
+        // Events can be turned off.
+        let bus = FakeBackend::default();
+        bus.0.lock().unwrap().events = true;
+        let off = Deck::with_backend(
+            Box::new(bus.clone()),
+            DeckOptions::default().device_events(false),
+        );
+        assert!(bus.0.lock().unwrap().on_change.is_none());
+        assert_eq!(off.rescan_interval(), POLLING_RESCAN);
+    }
+
+    #[test]
+    fn modules_are_found_on_an_announcement_and_not_on_a_timer() {
+        let bus = FakeBackend::default();
+        let mut deck = bus.event_deck(DeckOptions::default());
+        // The list is read once at the start.
+        assert!(poll(&mut deck).is_empty());
+        assert_eq!(bus.scans(), 1);
+
+        bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        // Nothing announced it: a quiet wait finds nothing and reads nothing.
+        assert!(deck.poll(Duration::from_millis(300)).unwrap().is_empty());
+        assert_eq!(bus.scans(), 1);
+
+        // A burst of announcements is one read, soon after the first.
+        let started = Instant::now();
+        for _ in 0..10 {
+            bus.changed();
+        }
+        assert_eq!(summary(&deck.poll(5 * SECOND).unwrap()), ["+N"]);
+        assert!(started.elapsed() < SECOND, "{:?}", started.elapsed());
+        assert_eq!(bus.scans(), 2);
+        assert!(deck.poll(Duration::from_millis(100)).unwrap().is_empty());
+        assert_eq!(bus.scans(), 2);
+
+        bus.unplug("N");
+        bus.changed();
+        assert_eq!(summary(&deck.poll(5 * SECOND).unwrap()), ["-N"]);
+        assert_eq!(bus.scans(), 3);
+    }
+
+    #[test]
+    fn the_safety_rescan_finds_what_no_announcement_told_of() {
+        let bus = FakeBackend::default();
+        let options = DeckOptions::default().rescan_interval(Duration::from_millis(200));
+        let mut deck = bus.event_deck(options);
+        assert!(poll(&mut deck).is_empty());
+
+        bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let started = Instant::now();
+        assert_eq!(summary(&deck.poll(5 * SECOND).unwrap()), ["+N"]);
+        let waited = started.elapsed();
+        assert!(waited >= Duration::from_millis(150), "{waited:?}");
+        assert!(waited < 2 * SECOND, "{waited:?}");
+    }
+
+    #[test]
+    fn an_idle_deck_sleeps_instead_of_polling() {
+        let bus = FakeBackend::default();
+        let mocks: Vec<Mock> = [
+            (ModuleKind::Base, "B"),
+            (ModuleKind::Keys15, "K"),
+            (ModuleKind::Knobs3, "N"),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(i, (kind, serial))| bus.plug(kind, serial, &[i as u8 + 1]))
+        .collect();
+        let mut deck = bus.event_deck(DeckOptions::default());
+        assert_eq!(poll(&mut deck).len(), 3);
+        for mock in &mocks {
+            mock.settle();
+        }
+        let (passes, scans) = (deck.passes, bus.scans());
+
+        assert!(deck.poll(Duration::from_millis(500)).unwrap().is_empty());
+        // One pass to start, one when the time is up.
+        assert!(deck.passes - passes <= 2, "{} passes", deck.passes - passes);
+        assert_eq!(bus.scans(), scans);
+        for mock in &mocks {
+            // Each reader sits in the one read it started with.
+            assert_eq!(mock.0.lock().unwrap().read_timeouts.len(), 1);
+        }
+    }
+
+    #[test]
+    fn input_wakes_a_waiting_poll_at_once() {
+        let bus = FakeBackend::default();
+        let knobs = bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let mut deck = bus.event_deck(DeckOptions::default());
+        poll(&mut deck);
+        knobs.settle();
+
+        let pusher = {
+            let knobs = knobs.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(100));
+                knobs.push_input(&KNOB_STEP);
+            })
+        };
+        let started = Instant::now();
+        let events = deck.poll(10 * SECOND).unwrap();
+        pusher.join().unwrap();
+        assert_eq!(summary(&events), ["N:EncoderDelta { index: 2, delta: 1 }"]);
+        assert!(started.elapsed() < 2 * SECOND, "{:?}", started.elapsed());
+    }
+
+    #[test]
+    fn a_waker_ends_a_wait_and_is_not_forgotten() {
+        let bus = FakeBackend::default();
+        let mut deck = bus.event_deck(DeckOptions::default());
+        poll(&mut deck);
+        let waker = deck.waker();
+
+        let thread = {
+            let waker = waker.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(100));
+                waker.wake();
+            })
+        };
+        let started = Instant::now();
+        assert!(deck.poll(10 * SECOND).unwrap().is_empty());
+        thread.join().unwrap();
+        assert!(started.elapsed() < 2 * SECOND, "{:?}", started.elapsed());
+
+        // A wake between two polls ends the next one at once, and only that.
+        waker.wake();
+        let started = Instant::now();
+        assert!(deck.poll(10 * SECOND).unwrap().is_empty());
+        assert!(started.elapsed() < SECOND);
+        assert!(deck.poll(Duration::from_millis(50)).unwrap().is_empty());
+        assert!(started.elapsed() >= Duration::from_millis(50));
+    }
+
+    #[test]
+    fn a_reader_ends_with_its_module_and_the_module_comes_back() {
+        let bus = FakeBackend::default();
+        let knobs = bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let mut deck = bus.event_deck(DeckOptions::default());
+        assert_eq!(summary(&poll(&mut deck)), ["+N"]);
+        let scans = bus.scans();
+
+        // No announcement: the failed read alone says the module is gone.
+        knobs.unplug();
+        assert_eq!(summary(&deck.poll(5 * SECOND).unwrap()), ["-N"]);
+        assert_eq!(deck.modules().count(), 0);
+        assert_eq!(bus.scans(), scans);
+
+        // The bus still lists it, so the rescan that follows after a pause
+        // opens the replacement handle.
+        bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let started = Instant::now();
+        assert_eq!(summary(&deck.poll(5 * SECOND).unwrap()), ["+N"]);
+        assert!(started.elapsed() >= RECONNECT_PAUSE / 2);
+    }
+
+    #[test]
+    fn what_a_module_sent_before_it_left_is_delivered_before_its_departure() {
+        let bus = FakeBackend::default();
+        let knobs = bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let mut deck = bus.event_deck(DeckOptions::default());
+        poll(&mut deck);
+
+        knobs.push_input(&KNOB_STEP);
+        knobs.settle();
+        bus.unplug("N");
+        bus.changed();
+        let mut seen = Vec::new();
+        while seen.len() < 2 {
+            seen.extend(summary(&deck.poll(5 * SECOND).unwrap()));
+        }
+        assert_eq!(seen, ["N:EncoderDelta { index: 2, delta: 1 }", "-N"]);
+    }
+
+    #[test]
+    fn an_open_that_fails_while_the_node_is_new_is_not_reported() {
+        let bus = FakeBackend::default();
+        bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let path = bus.0.lock().unwrap().listed[0].path.clone();
+        bus.0.lock().unwrap().refuse.push(path);
+        let mut deck = bus.event_deck(DeckOptions::default());
+
+        // Udev has not given access yet: the open is tried again.
+        assert!(deck.poll(Duration::from_millis(700)).unwrap().is_empty());
+        assert!(bus.scans() >= 3, "{} scans", bus.scans());
+        // Access arrives with the next announcement.
+        bus.0.lock().unwrap().refuse.clear();
+        bus.changed();
+        assert_eq!(summary(&deck.poll(5 * SECOND).unwrap()), ["+N"]);
+    }
+
+    #[test]
+    fn an_open_that_keeps_failing_is_reported_once_after_the_retries() {
+        let bus = FakeBackend::default();
+        bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let path = bus.0.lock().unwrap().listed[0].path.clone();
+        bus.0.lock().unwrap().refuse.push(path);
+        let mut deck = bus.event_deck(DeckOptions::default());
+
+        let started = Instant::now();
+        assert_eq!(summary(&deck.poll(10 * SECOND).unwrap()), ["!N"]);
+        assert!(started.elapsed() >= OPEN_RETRY_WINDOW);
+        // From here on only an announcement or the safety rescan tries again.
+        let scans = bus.scans();
+        assert!(deck.poll(Duration::from_millis(500)).unwrap().is_empty());
+        assert_eq!(bus.scans(), scans);
+        bus.changed();
+        assert!(deck.poll(Duration::from_millis(500)).unwrap().is_empty());
+        assert_eq!(bus.scans(), scans + 1);
     }
 
     #[test]
