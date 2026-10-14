@@ -6,7 +6,8 @@
 //! the bottom, left or right side of a cell. A module touches exactly one
 //! pad with a contact whose place on the module is fixed, so the pad
 //! identifies both the cells the module covers and how it is turned
-//! (docs/experiments/0013 and 0014).
+//! (docs/experiments/0013 and 0014). Only that pad has to be on the base: a
+//! module may hang over its edge (docs/experiments/0028).
 
 use crate::devices::ModuleKind;
 
@@ -52,18 +53,34 @@ impl Rotation {
 }
 
 /// The cells a mounted module covers.
+///
+/// Cells are counted in the base's grid. Where a module hangs over the edge
+/// of the base, its cells continue that grid beyond `1..=BASE_COLUMNS` and
+/// `1..=BASE_ROWS`, so `column` and `row` can be 0 or negative.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct Placement {
-    /// Leftmost covered column, `1..=BASE_COLUMNS`.
-    pub column: u8,
-    /// Topmost covered row, `1..=BASE_ROWS`.
-    pub row: u8,
+    /// Leftmost covered column.
+    pub column: i8,
+    /// Topmost covered row.
+    pub row: i8,
     /// Number of covered columns as mounted.
     pub columns: u8,
     /// Number of covered rows as mounted.
     pub rows: u8,
     pub rotation: Rotation,
+}
+
+impl Placement {
+    /// Rightmost covered column.
+    pub const fn last_column(&self) -> i8 {
+        self.column + self.columns as i8 - 1
+    }
+
+    /// Bottom covered row.
+    pub const fn last_row(&self) -> i8 {
+        self.row + self.rows as i8 - 1
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,8 +179,8 @@ const fn shape(kind: ModuleKind) -> Option<Shape> {
 /// Works out which cells `kind` covers when it reports `mount_path`
 /// ([`Manager::mount_path`](crate::Manager::mount_path)).
 ///
-/// Returns `None` for the base itself, for an unknown path, and for a pad
-/// that this module cannot be seated on.
+/// Returns `None` for the base itself and for an unknown path. A placement
+/// that hangs over the edge of the base is returned as it is.
 pub fn placement(kind: ModuleKind, mount_path: &[u8]) -> Option<Placement> {
     let shape = shape(kind)?;
     let pad = PADS.iter().find(|p| p.path == mount_path)?;
@@ -180,11 +197,10 @@ pub fn placement(kind: ModuleKind, mount_path: &[u8]) -> Option<Placement> {
         if side != pad.side {
             return None;
         }
-        let column = pad.column.checked_sub(cx).filter(|c| *c >= 1)?;
-        let row = pad.row.checked_sub(cy).filter(|r| *r >= 1)?;
-        (column + columns - 1 <= BASE_COLUMNS && row + rows - 1 <= BASE_ROWS).then_some(Placement {
-            column,
-            row,
+        // Pads and footprints are a few cells, so the casts cannot wrap.
+        Some(Placement {
+            column: pad.column as i8 - cx as i8,
+            row: pad.row as i8 - cy as i8,
             columns,
             rows,
             rotation,
@@ -198,7 +214,7 @@ mod tests {
     use ModuleKind::{DialDisplay, Faders5, Keys15, Knobs3, Rollers2};
     use Rotation::{Deg0, Deg90, Deg270};
 
-    fn at(column: u8, row: u8, columns: u8, rows: u8, rotation: Rotation) -> Option<Placement> {
+    fn at(column: i8, row: i8, columns: u8, rows: u8, rotation: Rotation) -> Option<Placement> {
         Some(Placement {
             column,
             row,
@@ -209,7 +225,7 @@ mod tests {
     }
 
     /// Every placement that was physically made and logged
-    /// (docs/experiments/0005, 0011, 0013, 0014, 0015).
+    /// (docs/experiments/0005, 0011, 0013, 0014, 0015, 0028).
     #[test]
     fn reproduces_every_measured_placement() {
         let measured: &[(ModuleKind, &[u8], Option<Placement>)] = &[
@@ -254,6 +270,12 @@ mod tests {
             (Rollers2, &[1, 3, 3], at(3, 4, 4, 1, Deg0)),
             (Rollers2, &[3, 3], at(1, 1, 4, 1, Deg0)),
             (Rollers2, &[1, 2, 1], at(1, 1, 1, 4, Deg90)),
+            // Keys hanging one row over the top edge, the other modules
+            // below them and beside them.
+            (Keys15, &[1, 1, 1], at(1, 0, 4, 3, Deg0)),
+            (DialDisplay, &[1, 4, 3], at(5, 1, 2, 2, Deg0)),
+            (Faders5, &[2, 3], at(1, 3, 4, 2, Deg0)),
+            (Knobs3, &[1, 3, 4], at(5, 3, 2, 2, Deg0)),
         ];
         for (kind, path, expected) in measured {
             assert_eq!(placement(*kind, path), *expected, "{kind} at {path:?}");
@@ -272,15 +294,44 @@ mod tests {
     }
 
     #[test]
-    fn placements_stay_on_the_base() {
+    fn every_module_fits_every_pad_it_faces() {
+        // Overhang is allowed, so only the side of the pad decides; every
+        // module has a contact that faces a bottom, left or right pad.
+        for kind in ModuleKind::ALL
+            .into_iter()
+            .filter(|k| *k != ModuleKind::Base)
+        {
+            for pad in &PADS {
+                assert!(
+                    placement(kind, pad.path).is_some(),
+                    "{kind} at {:?}",
+                    pad.path
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_pad_stays_under_the_module() {
         for kind in ModuleKind::ALL {
             for pad in &PADS {
                 if let Some(p) = placement(kind, pad.path) {
-                    assert!(p.column >= 1 && p.column + p.columns - 1 <= BASE_COLUMNS);
-                    assert!(p.row >= 1 && p.row + p.rows - 1 <= BASE_ROWS);
+                    let (column, row) = (pad.column as i8, pad.row as i8);
+                    assert!(p.column <= column && column < p.column + p.columns as i8);
+                    assert!(p.row <= row && row < p.row + p.rows as i8);
                 }
             }
         }
+    }
+
+    #[test]
+    fn overhang_reaches_past_every_edge() {
+        // Normal mounting extends left and up from the pad.
+        assert_eq!(placement(Keys15, &[1, 2, 4]), at(-1, 0, 4, 3, Deg0));
+        // Turned 90 degrees on a left pad the module extends right and up.
+        assert_eq!(placement(Keys15, &[3, 4]), at(5, -1, 3, 4, Deg90));
+        // Turned 270 degrees on a right pad it extends left and down.
+        assert_eq!(placement(Keys15, &[1, 3, 3]), at(4, 4, 3, 4, Deg270));
     }
 
     #[test]
@@ -291,11 +342,6 @@ mod tests {
         // Unknown path.
         assert_eq!(placement(Knobs3, &[9, 9]), None);
         assert_eq!(placement(Knobs3, &[]), None);
-        // A 2x2 module would hang over the left edge on the bottom pad of
-        // column 1; only the upright rollers use that pad.
-        assert_eq!(placement(Knobs3, &[1, 2, 1]), None);
-        // The keys do not fit above row 3 on a bottom pad of row 2.
-        assert_eq!(placement(Keys15, &[1, 2, 4]), None);
     }
 
     #[test]

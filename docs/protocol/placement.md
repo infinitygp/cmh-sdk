@@ -10,6 +10,7 @@ CONFIRMED for every module type: in many places for the 3 Knobs and the
 2 Rollers, and in two places each, one of them predicted beforehand, for the
 Dial Display, the 15 LCD Keys and the 5 Faders (experiment 0015). A third
 place for the 5 Faders, on a right-side pad, followed in experiment 0022.
+A module hanging over the edge of the base was measured in experiment 0028.
 
 ## Mount path
 
@@ -67,15 +68,24 @@ contact side matches, and the pad's cell fixes the rest. Examples:
 | 3 Knobs | `1.1.3` | columns 5-6, rows 3-4 | 90 |
 | 2 Rollers | `1.1.4` | columns 1-4, row 4 | 0 |
 | 2 Rollers | `1.2.1` | column 1, rows 1-4 | 90 |
+| 15 LCD Keys | `1.1.1` | columns 1-4, rows 0-2 | 0 |
 
 2 x 2 modules are not limited to the six places of a 3 x 2 tiling: they
 also seat half a place lower in the middle and right columns and half a
 place sideways in the bottom row.
 
+Only the contact has to rest on a pad: the rest of a module may hang over
+the edge of the base (experiment 0028, the keys on `1.1.1`). Its cells then
+continue the base's grid past the edges, so a column or row can be 0,
+negative, or above 6 or 4. Every module fits every pad that faces its
+contact in some orientation.
+
 SDK: `placement::placement(kind, mount_path)`, `Manager::placement`.
 
 ## Limits
 
+- How far a module can hang over in practice (locating pegs, how well it
+  holds) is UNKNOWN; one such layout was tried.
 - One base unit was examined. That other units are wired identically is an
   assumption.
 - The base can also be used standing on its short side ("VERTICAL" marking);

@@ -75,7 +75,8 @@ being seated (experiment 0011).
 2. Two bases at once, and two modules of the same model: handled in tests
    with scripted devices only; no second unit was available.
 3. Position on the base: purpose of the 2 x 6 pin block; whether other base
-   units are wired the same as the one examined
+   units are wired the same as the one examined; how far a module can hang
+   over the edge (experiment 0028)
    ([protocol/placement.md](protocol/placement.md)).
 4. JPEG tolerance of the display modules: the maximum size (above 19 kB
    on the keys, above 28 kB on the dial). Both take 4:2:2 and 4:2:0; the

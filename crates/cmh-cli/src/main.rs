@@ -243,9 +243,9 @@ fn cells(placement: Option<Placement>) -> String {
         Some(p) => format!(
             "columns {}-{} rows {}-{} turned {}",
             p.column,
-            p.column + p.columns - 1,
+            p.last_column(),
             p.row,
-            p.row + p.rows - 1,
+            p.last_row(),
             p.rotation.degrees()
         ),
         None => "?".to_owned(),
