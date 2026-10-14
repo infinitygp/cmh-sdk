@@ -53,7 +53,8 @@ open module has a reader thread that waits in a blocking read on a second
 handle of the device, and reports carry the time they were read. On Linux
 the deck learns of arriving and leaving modules from an inotify watch of
 `/dev` and reads the device list only then, once in a minute as a safety
-net, and at the start; `DeckOptions::device_events` and
+net, once a second while a listed module does not open, and at the start;
+`DeckOptions::device_events` and
 `DeckOptions::rescan_interval` change that. On Windows it still rescans
 once a second: the system's device notifications are written but not
 verified on hardware.

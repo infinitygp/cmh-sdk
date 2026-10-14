@@ -45,6 +45,8 @@ pub(crate) struct State {
     /// that wait for a report right now.
     pub readers: usize,
     pub blocked: usize,
+    /// Reads of a reader that fail once each although the module is there.
+    pub glitches: usize,
 }
 
 /// Firmware reports for the mocks of the display modules.
@@ -98,6 +100,13 @@ impl Mock {
 
     pub fn unplug(&self) {
         self.0.lock().unwrap().unplugged = true;
+        self.1.notify_all();
+    }
+
+    /// Makes the next read of a reader fail once, as hidapi's does when a
+    /// signal interrupts its wait, and ends the read that waits now.
+    pub fn glitch(&self) {
+        self.0.lock().unwrap().glitches += 1;
         self.1.notify_all();
     }
 
@@ -223,6 +232,10 @@ impl InputReader for MockReader {
         loop {
             if state.unplugged {
                 return Err(Error::Disconnected("mock unplugged".to_owned()));
+            }
+            if state.glitches > 0 {
+                state.glitches -= 1;
+                return Err(Error::Disconnected("mock interrupted".to_owned()));
             }
             if let Some(report) = state.inputs.pop_front() {
                 buf[..report.len()].copy_from_slice(&report);

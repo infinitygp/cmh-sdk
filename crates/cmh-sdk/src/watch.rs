@@ -3,7 +3,8 @@
 //!
 //! The source only says "look again": which module came or went is found
 //! out by the enumeration that follows. A spurious call costs one
-//! enumeration, a missing one is caught by the deck's safety rescan.
+//! enumeration, a missing one is caught by the deck's safety rescan. A
+//! source that dies says so, so that the deck does not keep trusting it.
 
 /// Keeps an event source running. Dropping it stops the source.
 pub(crate) struct Watch(#[allow(dead_code)] platform::Guard);
@@ -11,8 +12,16 @@ pub(crate) struct Watch(#[allow(dead_code)] platform::Guard);
 /// Starts an event source that calls `changed` whenever a HID device may
 /// have appeared, disappeared or been changed. The call comes from another
 /// thread. `None` where the platform has no source or it cannot be set up.
-pub(crate) fn start(changed: Box<dyn Fn() + Send + Sync>) -> Option<Watch> {
-    platform::start(changed).map(Watch)
+///
+/// `ended` is called once from the source's thread when that thread stops,
+/// whatever the reason: it failed, or the system removed what it watched.
+/// Nothing more is announced after that. Where the platform source has no
+/// thread of its own, `ended` is never called.
+pub(crate) fn start(
+    changed: Box<dyn Fn() + Send + Sync>,
+    ended: Box<dyn FnOnce() + Send>,
+) -> Option<Watch> {
+    platform::start(changed, ended).map(Watch)
 }
 
 #[cfg(target_os = "linux")]
@@ -35,11 +44,18 @@ mod platform {
     /// Dropping the stream closes the end the thread polls, which stops it.
     pub(super) struct Guard(#[allow(dead_code)] UnixStream);
 
-    pub(super) fn start(changed: Box<dyn Fn() + Send + Sync>) -> Option<Guard> {
-        watch(Path::new("/dev"), changed)
+    pub(super) fn start(
+        changed: Box<dyn Fn() + Send + Sync>,
+        ended: Box<dyn FnOnce() + Send>,
+    ) -> Option<Guard> {
+        watch(Path::new("/dev"), changed, ended)
     }
 
-    fn watch(dir: &Path, changed: Box<dyn Fn() + Send + Sync>) -> Option<Guard> {
+    fn watch(
+        dir: &Path,
+        changed: Box<dyn Fn() + Send + Sync>,
+        ended: Box<dyn FnOnce() + Send>,
+    ) -> Option<Guard> {
         use std::os::unix::ffi::OsStrExt;
 
         let dir = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
@@ -64,7 +80,10 @@ mod platform {
         let (guard, parked) = UnixStream::pair().ok()?;
         std::thread::Builder::new()
             .name("cmh-hotplug".to_owned())
-            .spawn(move || serve(File::from(inotify), parked, changed))
+            .spawn(move || {
+                serve(File::from(inotify), parked, changed);
+                ended();
+            })
             .ok()?;
         Some(Guard(guard))
     }
@@ -98,8 +117,16 @@ mod platform {
             }
             if fds[0].revents != 0 {
                 match inotify.read(&mut buf) {
-                    Ok(len) if concerns_hidraw(&buf[..len]) => changed(),
-                    Ok(_) => {}
+                    Ok(len) => {
+                        let seen = read_records(&buf[..len]);
+                        if seen.changed {
+                            changed();
+                        }
+                        // The kernel dropped the watch: it would never speak again.
+                        if seen.gone {
+                            return;
+                        }
+                    }
                     Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
                     Err(_) => return,
                 }
@@ -107,25 +134,40 @@ mod platform {
         }
     }
 
-    /// Whether the `inotify_event` records in `buf` name a `hidraw` node, or
-    /// say that events were lost. A record that does not parse counts too.
-    fn concerns_hidraw(mut buf: &[u8]) -> bool {
+    /// What the `inotify_event` records in a buffer say.
+    #[derive(Default)]
+    struct Seen {
+        /// A `hidraw` node is named, events were lost, the watch is gone or a
+        /// record does not parse: the deck has to look again.
+        changed: bool,
+        /// The watch was removed (`/dev` unmounted or deleted); it is dead.
+        gone: bool,
+    }
+
+    fn read_records(mut buf: &[u8]) -> Seen {
         const HEADER: usize = 16;
+        let mut seen = Seen::default();
         while !buf.is_empty() {
             if buf.len() < HEADER {
-                return true;
+                seen.changed = true;
+                break;
             }
             let mask = u32::from_ne_bytes([buf[4], buf[5], buf[6], buf[7]]);
             let len = u32::from_ne_bytes([buf[12], buf[13], buf[14], buf[15]]) as usize;
             let Some(name) = buf.get(HEADER..HEADER + len) else {
-                return true;
+                seen.changed = true;
+                break;
             };
+            if mask & (libc::IN_IGNORED | libc::IN_UNMOUNT) != 0 {
+                seen.changed = true;
+                seen.gone = true;
+            }
             if mask & libc::IN_Q_OVERFLOW != 0 || name.starts_with(b"hidraw") {
-                return true;
+                seen.changed = true;
             }
             buf = &buf[HEADER + len..];
         }
-        false
+        seen
     }
 
     #[cfg(test)]
@@ -149,6 +191,10 @@ mod platform {
             bytes
         }
 
+        fn concerns_hidraw(buf: &[u8]) -> bool {
+            read_records(buf).changed
+        }
+
         #[test]
         fn only_hidraw_nodes_and_lost_events_count() {
             assert!(concerns_hidraw(&record(libc::IN_CREATE, b"hidraw7")));
@@ -162,6 +208,21 @@ mod platform {
             assert!(concerns_hidraw(&burst));
             // Cut off in the middle of a record.
             assert!(concerns_hidraw(&record(libc::IN_CREATE, b"tty1")[..10]));
+        }
+
+        #[test]
+        fn a_watch_that_the_kernel_removed_is_a_change_and_is_dead() {
+            for mask in [libc::IN_IGNORED, libc::IN_UNMOUNT] {
+                let seen = read_records(&record(mask, b""));
+                assert!(seen.changed && seen.gone, "{mask:#x}");
+            }
+            let seen = read_records(&record(libc::IN_CREATE, b"hidraw1"));
+            assert!(seen.changed && !seen.gone);
+            // The removal can follow other records.
+            let mut burst = record(libc::IN_DELETE, b"tty1");
+            burst.extend(record(libc::IN_IGNORED, b""));
+            let seen = read_records(&burst);
+            assert!(seen.changed && seen.gone);
         }
 
         fn wait_for(what: &str, done: impl Fn() -> bool) {
@@ -183,6 +244,7 @@ mod platform {
                 Box::new(move || {
                     counted.fetch_add(1, Ordering::SeqCst);
                 }),
+                Box::new(|| {}),
             )
             .expect("inotify is available");
 
@@ -200,6 +262,32 @@ mod platform {
             drop(guard);
             wait_for("the thread to end", || Arc::strong_count(&calls) == 1);
             std::fs::remove_dir_all(&dir).unwrap();
+        }
+
+        #[test]
+        fn a_directory_removed_under_the_watch_is_a_change_and_ends_it() {
+            let dir = std::env::temp_dir().join(format!("cmh-watch-gone-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let calls = Arc::new(AtomicUsize::new(0));
+            let ended = Arc::new(AtomicUsize::new(0));
+            let (counted, told) = (calls.clone(), ended.clone());
+            let _guard = watch(
+                &dir,
+                Box::new(move || {
+                    counted.fetch_add(1, Ordering::SeqCst);
+                }),
+                Box::new(move || {
+                    told.fetch_add(1, Ordering::SeqCst);
+                }),
+            )
+            .expect("inotify is available");
+
+            // The kernel answers with IN_IGNORED, which nobody asked for.
+            std::fs::remove_dir(&dir).unwrap();
+            wait_for("the end to be reported", || {
+                ended.load(Ordering::SeqCst) == 1
+            });
+            assert!(calls.load(Ordering::SeqCst) >= 1);
         }
     }
 }
@@ -257,7 +345,7 @@ mod platform {
         0
     }
 
-    pub(super) fn start(changed: Changed) -> Option<Guard> {
+    pub(super) fn start(changed: Changed, _ended: Box<dyn FnOnce() + Send>) -> Option<Guard> {
         let context = Box::into_raw(Box::new(changed));
         let mut filter = CM_NOTIFY_FILTER {
             cbSize: std::mem::size_of::<CM_NOTIFY_FILTER>() as u32,
@@ -297,7 +385,10 @@ mod platform {
 mod platform {
     pub(super) struct Guard;
 
-    pub(super) fn start(_changed: Box<dyn Fn() + Send + Sync>) -> Option<Guard> {
+    pub(super) fn start(
+        _changed: Box<dyn Fn() + Send + Sync>,
+        _ended: Box<dyn FnOnce() + Send>,
+    ) -> Option<Guard> {
         None
     }
 }

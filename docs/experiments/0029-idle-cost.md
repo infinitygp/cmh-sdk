@@ -169,3 +169,54 @@ nothing new to a module.
   the base's heartbeat and a press, `DeckOptions::device_events(true)` with
   a module pulled and re-seated, and idle CPU with the Task Manager's
   per-thread view.
+
+## Follow-up after review (same day)
+
+A review of the change found six small defects, three of them in the SDK.
+They are fixed on top of the commit this note belongs to; what the text
+above says about discovery and readers holds with these changes.
+
+- **A module that does not open is retried every second, not every minute.**
+  A module that is listed and failed to open (after the two seconds of
+  hold-back), or that was opened and then missing from the list taken
+  straight after (`relisted`), used to wait for an announcement or the
+  60 s safety rescan. While any such module exists the deck now reads the
+  device list at the polling interval (1 s, or a shorter `rescan_interval`)
+  until the module is open or no longer listed, then goes back to sleeping.
+  Without device events nothing changes: the timer was the retry already. The
+  price is what a rescan costs (6.7 ms of CPU, about 0.7 % of a core at one a
+  second) for as long as a module stays listed and unopenable, for example
+  without the udev rule; this is what the SDK cost before this note.
+- **A failed read does not end the reader at once.** hidapi 2.6.7 reads the
+  hidraw node in `hid_read_timeout` with `poll(2)`, and when that is
+  interrupted by a signal (EINTR) it returns -1, which the SDK took for a
+  pulled module. The error text is `strerror(errno)`, so it is exposed
+  ("Interrupted system call" through `HidError`'s display), but it depends
+  on the locale and older hidapi versions return -1 without a text, so the
+  reader does not read it: after a failed read it reads once more without
+  waiting and ends only if that fails too. For a module that is gone that
+  read fails as well (`poll` reports `POLLERR` or `POLLHUP`, which hidapi
+  turns into -1). Both facts are from the source of hidapi 2.6.7
+  (`etc/hidapi/linux/hid.c`): CONFIRMED as to what the code does; that a real
+  signal interrupts a real read was not provoked: LIKELY. The testing
+  transport fails one read of a reader (`Mock::glitch`).
+- **A dead watch is noticed.** The inotify thread now counts `IN_IGNORED` and
+  `IN_UNMOUNT` (the kernel removed the watch: `/dev` was unmounted or
+  removed) as a change, ends on them, and when it ends for any reason (that,
+  a failed `read` or `poll`, or the deck letting go) calls a second callback
+  that the deck turns into a message. The deck then drops the watch, reads
+  the device list at once for what went unseen and rescans at the polling
+  interval from then on (an explicit `rescan_interval` still wins). Tested
+  against a real inotify watch on a temporary directory that is removed
+  (`IN_IGNORED`): CONFIRMED. An unmount of `/dev` and the loss of events
+  by an inotify queue overflow (counted as a change already) were not
+  provoked: UNKNOWN. On Windows the notification has no thread of its own and
+  never ends by itself.
+- **Tests without hardware.** The scripted deck covers a failed open that
+  becomes possible with no announcement, a module dropped on a missing relist
+  that then connects, the return to sleeping once nothing is pending, a watch
+  that ends, and a read that fails once. The idle test
+  (`an_idle_deck_sleeps_instead_of_polling`) is unchanged and passes. The test that
+  pinned "only an announcement or the safety rescan tries again" now pins the
+  one-second retry.
+
