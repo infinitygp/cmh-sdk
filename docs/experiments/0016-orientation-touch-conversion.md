@@ -3,7 +3,7 @@
 - Date: 2026-10-12
 - Tools: `cmh monitor --raw --heartbeat`, `cmh image`, a passive timing
   probe; a person at the device
-- Evidence: [fixtures/inputs/base-orientation.txt](../../fixtures/inputs/base-orientation.txt)
+- Evidence: [crates/cmh-sdk/fixtures/inputs/base-orientation.txt](../../crates/cmh-sdk/fixtures/inputs/base-orientation.txt)
 - Layout: the normal one; vendor application running
 
 ## Base orientation

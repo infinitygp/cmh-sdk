@@ -2,7 +2,7 @@
 
 - Date: 2026-10-12
 - Capture (local only): `20261012-121532-sdk-image-upload.pcapng` (1546 packets)
-- Evidence: [fixtures/images/key-00-sdk-upload.txt](../../fixtures/images/key-00-sdk-upload.txt)
+- Evidence: [crates/cmh-sdk/fixtures/images/key-00-sdk-upload.txt](../../crates/cmh-sdk/fixtures/images/key-00-sdk-upload.txt)
 - Firmware: Keys `02.00.01.00`, Dial `01.00.04.00`
 
 ## Procedure (automated)

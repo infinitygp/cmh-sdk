@@ -7,7 +7,7 @@
   `led-fader-effect-menu`, `led-fader-color`, `led-base`,
   `keys-display-settings`, `led-restore`, `led-restore-per-module`, `sdk-led`
   (all `20261012-124*` / `1250*`)
-- Evidence: [fixtures/leds/vendor-app-lighting.txt](../../fixtures/leds/vendor-app-lighting.txt)
+- Evidence: [crates/cmh-sdk/fixtures/leds/vendor-app-lighting.txt](../../crates/cmh-sdk/fixtures/leds/vendor-app-lighting.txt)
 - Modules mounted: Base, 15 LCD Keys, 2 Rollers, 5 Faders
 
 The application's "Lighting" tab lists only `5xFader` and `Base`, each with

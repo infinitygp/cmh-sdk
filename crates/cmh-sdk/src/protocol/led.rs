@@ -205,7 +205,7 @@ mod tests {
     use super::*;
     use crate::fixture::{Direction, Fixture};
 
-    const SESSION: &str = include_str!("../../../../fixtures/leds/vendor-app-lighting.txt");
+    const SESSION: &str = include_str!("../../fixtures/leds/vendor-app-lighting.txt");
 
     fn captured() -> Vec<(ModuleKind, Vec<u8>)> {
         Fixture::parse(SESSION)

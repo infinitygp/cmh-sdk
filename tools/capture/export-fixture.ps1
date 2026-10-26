@@ -20,7 +20,7 @@
     tools\capture\export-fixture.ps1 captures\20261012-120610-app-kill-and-start.pcapng -Directions get,set
 
 .EXAMPLE
-    tools\capture\export-fixture.ps1 capture.pcapng -ProductId 0202 -Directions in > fixtures\inputs\knobs.txt
+    tools\capture\export-fixture.ps1 capture.pcapng -ProductId 0202 -Directions in > crates\cmh-sdk\fixtures\inputs\knobs.txt
 #>
 [CmdletBinding()]
 param(

@@ -314,7 +314,7 @@ mod tests {
         use crate::fixture::{Direction, Fixture};
 
         // Experiment 0009: one knob detent changes the level by 5.
-        let text = include_str!("../../../../fixtures/display/vendor-app-brightness.txt");
+        let text = include_str!("../../fixtures/display/vendor-app-brightness.txt");
         let fixture = Fixture::parse(text).unwrap();
         let mut levels = Vec::new();
         for record in fixture.records() {

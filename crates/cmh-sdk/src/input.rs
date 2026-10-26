@@ -163,7 +163,7 @@ mod tests {
     use super::*;
     use crate::fixture::{Direction, Fixture};
 
-    const SESSION: &str = include_str!("../../../fixtures/inputs/all-controls.txt");
+    const SESSION: &str = include_str!("../fixtures/inputs/all-controls.txt");
 
     fn decode_session() -> Vec<(ModuleKind, InputEvent)> {
         let fixture = Fixture::parse(SESSION).unwrap();
@@ -269,7 +269,7 @@ mod tests {
     fn base_orientation_follows_the_heartbeat() {
         // Experiment 0016: the base was stood on its short side and laid
         // flat again.
-        let text = include_str!("../../../fixtures/inputs/base-orientation.txt");
+        let text = include_str!("../fixtures/inputs/base-orientation.txt");
         let fixture = Fixture::parse(text).unwrap();
         let mut decoder = InputDecoder::new(ModuleKind::Base);
         let mut states = Vec::new();
@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn faders_session() {
-        let text = include_str!("../../../fixtures/inputs/faders.txt");
+        let text = include_str!("../fixtures/inputs/faders.txt");
         let fixture = Fixture::parse(text).unwrap();
         let mut decoder = InputDecoder::new(ModuleKind::Faders5);
         let mut events = Vec::new();
@@ -381,7 +381,7 @@ mod tests {
     fn one_detent_clockwise_per_control() {
         // Experiment 0009: left knob, right knob, apex knob and dial, each
         // turned one detent clockwise, in a known order.
-        let text = include_str!("../../../fixtures/inputs/clockwise-checks.txt");
+        let text = include_str!("../fixtures/inputs/clockwise-checks.txt");
         let fixture = Fixture::parse(text).unwrap();
         let mut knobs = InputDecoder::new(ModuleKind::Knobs3);
         let mut dial = InputDecoder::new(ModuleKind::DialDisplay);

@@ -72,7 +72,7 @@ Examples: `crates/cmh-sdk/examples`.
 - `crates/cmh-cli`: `cmh`, a diagnostic tool
 - `docs/protocol`: [protocol reference](docs/protocol/README.md), one page per module
 - `docs/experiments`: what was done to learn each fact
-- `fixtures/`: reports recorded from hardware, used by the tests
+- `crates/cmh-sdk/fixtures/`: reports recorded from hardware, used by the tests
 - `tools/capture`: USBPcap helper scripts ([workflow](docs/capture-workflow.md))
 
 ## The `cmh` tool
@@ -82,7 +82,7 @@ cargo run -p cmh-cli -- list                 # modules, mount path, placement
 cargo run -p cmh-cli -- info                 # firmware, capabilities
 cargo run -p cmh-cli -- info --software-mode # also for the keys and the dial
 cargo run -p cmh-cli -- monitor --raw        # live events, never writes
-cargo run -p cmh-cli -- replay fixtures/inputs/all-controls.txt
+cargo run -p cmh-cli -- replay crates/cmh-sdk/fixtures/inputs/all-controls.txt
 cargo run -p cmh-cli -- image --module keys --key 3 picture.png
 cargo run -p cmh-cli -- brightness --module keys 60
 cargo run -p cmh-cli -- led --module knobs --color ff8000 --mode static

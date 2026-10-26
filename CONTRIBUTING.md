@@ -13,7 +13,7 @@ may take a while.
 - **Your own observations.** Facts come from a device and from traffic on the
   wire, not from decompiled vendor software.
 - **Fixtures instead of captures.** Reports recorded from hardware go into
-  `fixtures/` in the text format written by `cmh monitor --raw` and
+  `crates/cmh-sdk/fixtures/` in the text format written by `cmh monitor --raw` and
   `tools/capture/export-fixture.ps1`. Raw captures (`*.pcapng`) are not
   committed, and the unit digits of serial numbers are masked as in
   [docs/inventory.md](docs/inventory.md).
@@ -36,6 +36,14 @@ The tests need no hardware.
 
 One subject line, `type: summary` or `type(scope): summary`, as in the
 existing history.
+
+## Publishing
+
+Only `crates/cmh-sdk` is published; `cmh-cli` keeps `publish = false`.
+`cargo package -p cmh-sdk` must pass and `cargo test --all-features` must pass
+in the unpacked `target/package/cmh-sdk-<version>` before the owner runs
+`cargo publish -p cmh-sdk`. The fixtures the tests read live in the crate so
+that the published package tests itself.
 
 ## License
 

@@ -3,7 +3,7 @@
 - Date: 2026-10-12
 - Tool: passive hidapi read loop on all five modules (now `cmh monitor --raw`), nothing written
 - State: vendor application running
-- Evidence: [fixtures/inputs/all-controls.txt](../../fixtures/inputs/all-controls.txt)
+- Evidence: [crates/cmh-sdk/fixtures/inputs/all-controls.txt](../../crates/cmh-sdk/fixtures/inputs/all-controls.txt)
   (complete session; base heartbeats thinned out)
 - Layout during the test: keys top-left with the logo bar at the bottom, dial
   top-right, knobs bottom-right, rollers bottom-left

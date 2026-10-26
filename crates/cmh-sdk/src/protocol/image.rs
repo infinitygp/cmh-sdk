@@ -392,7 +392,7 @@ pub(crate) mod tests {
     fn captured_upload_round_trips() {
         use crate::fixture::{Direction, Fixture};
 
-        let text = include_str!("../../../../fixtures/images/key-00-sdk-upload.txt");
+        let text = include_str!("../../fixtures/images/key-00-sdk-upload.txt");
         let fixture = Fixture::parse(text).unwrap();
         let captured: Vec<Vec<u8>> = fixture
             .records()

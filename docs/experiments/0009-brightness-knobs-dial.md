@@ -7,9 +7,9 @@
   `20261012-131311-led-knobs.pcapng`,
   `20261012-13*-sdk-brightness-knob-led.pcapng`
 - Evidence:
-  [fixtures/inputs/clockwise-checks.txt](../../fixtures/inputs/clockwise-checks.txt),
-  [fixtures/display/vendor-app-brightness.txt](../../fixtures/display/vendor-app-brightness.txt),
-  the 3 Knobs block of [fixtures/leds/vendor-app-lighting.txt](../../fixtures/leds/vendor-app-lighting.txt)
+  [crates/cmh-sdk/fixtures/inputs/clockwise-checks.txt](../../crates/cmh-sdk/fixtures/inputs/clockwise-checks.txt),
+  [crates/cmh-sdk/fixtures/display/vendor-app-brightness.txt](../../crates/cmh-sdk/fixtures/display/vendor-app-brightness.txt),
+  the 3 Knobs block of [crates/cmh-sdk/fixtures/leds/vendor-app-lighting.txt](../../crates/cmh-sdk/fixtures/leds/vendor-app-lighting.txt)
 - Layout: keys top-left, dial top-right, knobs bottom-right with the single
   knob of the triangle at the top, rollers bottom-left
 

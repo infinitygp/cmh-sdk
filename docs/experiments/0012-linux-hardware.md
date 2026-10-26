@@ -9,7 +9,7 @@
   mode 0660); every command below ran as an ordinary user
 - The vendor application could not see the attached modules, so nothing
   competed with the SDK
-- Evidence: [fixtures/inputs/linux-keys-knobs.txt](../../fixtures/inputs/linux-keys-knobs.txt)
+- Evidence: [crates/cmh-sdk/fixtures/inputs/linux-keys-knobs.txt](../../crates/cmh-sdk/fixtures/inputs/linux-keys-knobs.txt)
 
 ## Procedure
 

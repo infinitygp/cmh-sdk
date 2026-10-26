@@ -5,9 +5,9 @@
   USBPcap capture of the vendor application starting
 - Capture (local only): `20261012-122713-app-start-with-faders.pcapng` (2070 packets)
 - Evidence:
-  [fixtures/inputs/without-vendor-app.txt](../../fixtures/inputs/without-vendor-app.txt),
-  [fixtures/inputs/faders.txt](../../fixtures/inputs/faders.txt),
-  [fixtures/startup/vendor-app-init-faders.txt](../../fixtures/startup/vendor-app-init-faders.txt)
+  [crates/cmh-sdk/fixtures/inputs/without-vendor-app.txt](../../crates/cmh-sdk/fixtures/inputs/without-vendor-app.txt),
+  [crates/cmh-sdk/fixtures/inputs/faders.txt](../../crates/cmh-sdk/fixtures/inputs/faders.txt),
+  [crates/cmh-sdk/fixtures/startup/vendor-app-init-faders.txt](../../crates/cmh-sdk/fixtures/startup/vendor-app-init-faders.txt)
 - State at the start: vendor application killed, test images from
   experiment 0004 on the displays
 

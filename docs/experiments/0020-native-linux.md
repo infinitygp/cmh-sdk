@@ -14,7 +14,7 @@
   user; a person at the device. Times are local.
 - Other software: OpenDeck (opendeck-bin 2.14.0) was running for another
   device; `fuser` listed no process on the modules' hidraw nodes.
-- Evidence: [fixtures/inputs/linux-native.txt](../../fixtures/inputs/linux-native.txt)
+- Evidence: [crates/cmh-sdk/fixtures/inputs/linux-native.txt](../../crates/cmh-sdk/fixtures/inputs/linux-native.txt)
 
 ## Procedure
 

@@ -4,7 +4,7 @@
 - Captures (local only, not committed):
   `20261012-120447-idle-app-running.pcapng` (6 s, 664 packets),
   `20261012-120610-app-kill-and-start.pcapng` (38 s, 4136 packets)
-- Evidence: [fixtures/startup/vendor-app-init.txt](../../fixtures/startup/vendor-app-init.txt)
+- Evidence: [crates/cmh-sdk/fixtures/startup/vendor-app-init.txt](../../crates/cmh-sdk/fixtures/startup/vendor-app-init.txt)
   (feature traffic of the start, image uploads omitted)
 - Vendor application: MasterHUB 1.0.0.113
 
