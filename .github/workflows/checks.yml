@@ -1,6 +1,8 @@
 # Formatting, lints, tests, docs, feature combinations, the minimum Rust
 # version and the published package, on Linux and Windows. Started by hand
-# (Actions > checks > Run workflow); it never publishes anything.
+# (Actions > checks > Run workflow, or `gh workflow run checks --ref BRANCH`),
+# which GitHub offers once this file is on the default branch. It never
+# publishes anything.
 name: checks
 
 on:

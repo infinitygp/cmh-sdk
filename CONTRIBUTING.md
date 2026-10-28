@@ -36,7 +36,9 @@ cargo +1.88 test --workspace --all-features --locked   # minimum Rust version
 
 The tests need no hardware. The `checks` workflow runs the same on Linux
 and Windows, the minimum Rust version on both, the packaged crate and a
-compile-only check on macOS; it is started by hand from the Actions tab.
+compile-only check on macOS. It is started by hand, which GitHub allows
+only once the workflow file is on the default branch: from the Actions tab,
+or for another branch with `gh workflow run checks --ref <branch>`.
 A change that affects hardware behaviour is checked on hardware as well,
 and the experiment note says on which platform.
 
