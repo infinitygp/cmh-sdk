@@ -6,7 +6,7 @@ Legend:
 - **open**: not investigated or not implemented
 - **n/a**: does not apply to this module
 
-Last update: 2026-10-14. Every "done" below was verified on Windows 11,
+Last update: 2026-10-28. Every "done" below was verified on Windows 11,
 except where a row says otherwise.
 On Linux (WSL2 through usbipd-win, experiment 0012) the 3 Knobs and the
 15 LCD Keys were verified for enumeration, feature reads, input, LEDs,
@@ -52,6 +52,8 @@ being seated (experiment 0011).
 |---|---|
 | `Deck`: discovery, hot-plug, one event stream, commands by module ID | done on hardware (Windows; on Linux across a power cycle, experiment 0021); logic covered by tests with a scripted backend. Input is read by a thread per module and `poll` sleeps (experiment 0029): idle cost and ordered, timed heartbeats measured on Linux (open: presses, Windows) |
 | `Deck`: discovery by announcement of the system (`DeckOptions::device_events`) | Linux (inotify on `/dev`): the watch is tested, the idle cost measured, an arrival or departure seen by it open (experiment 0029). Windows (device interface notifications): written, compiles, never run, off by default (open) |
+| `Deck`: input queue bounded per module, overflow reported as `InputLost` with buttons, faders and orientation restored | logic covered by tests with a scripted backend; not run on hardware, where the queue only fills if an application stops polling |
+| `simulator` (cargo feature `test-support`): simulated modules driving a real `Deck` | done; scripted by design, says nothing about hardware |
 | `Manager` / `Module`: listing and single-module access | done |
 | `placement`: cells and rotation | done |
 | `picture` (cargo feature `image`): PNG / JPEG / pixels to the displays' JPEG | done on the keys; conversion output is checked against the upload rules in tests |
@@ -97,8 +99,8 @@ being seated (experiment 0011).
    connects the module under its real serial; `Manager`, and a deck that
    leaves the mode alone, show what the system lists.
 7. The declared minimum Rust version (1.88): the workspace builds and its
-   tests pass with rustc 1.88.0 on Windows; not tried with that toolchain
-   on Linux.
+   tests pass with rustc 1.88.0 on Windows and on Linux, on Linux also from
+   the packaged crate with its lock file.
 8. Feature reports whose bytes are known but not understood (experiment
    0018). The commands listed in the
    [protocol reference](protocol/README.md#commands-that-must-never-be-sent)
@@ -114,3 +116,9 @@ being seated (experiment 0011).
     module opened by the same process, the reader threads, and the end of
     a read when a module is pulled. The Faders and a second unit of a model
     were not on the machine.
+12. The udev rules of [linux-permissions.md](linux-permissions.md), which
+    match the six product IDs and use `uaccess` or a dedicated group: not
+    run on hardware. The Linux checks used a rule for the whole vendor ID
+    and the `wheel` group.
+13. macOS: never run. Whether the SDK compiles there is checked by the
+    `checks` workflow only.
