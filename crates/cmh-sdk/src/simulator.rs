@@ -57,9 +57,22 @@ type OnChange = Box<dyn Fn() + Send + Sync>;
 #[derive(Default)]
 struct Bus {
     modules: Vec<(HidInterface, Mock)>,
-    /// Decks to tell when a module is plugged in or pulled.
-    listeners: Vec<OnChange>,
+    /// Decks to tell when a module is plugged in or pulled, by listener ID.
+    listeners: Vec<(u64, OnChange)>,
+    next_listener: u64,
     next_port: u8,
+}
+
+/// Stops telling a deck about the bus once the deck is dropped.
+struct Listener {
+    bus: Arc<Mutex<Bus>>,
+    id: u64,
+}
+
+impl Drop for Listener {
+    fn drop(&mut self) {
+        lock(&self.bus).listeners.retain(|(id, _)| *id != self.id);
+    }
 }
 
 /// A simulated USB bus with MasterHUB modules on it. Clones share the bus.
@@ -156,7 +169,7 @@ impl Simulator {
     }
 
     fn announce(&self) {
-        for listener in &lock(&self.0).listeners {
+        for (_, listener) in &lock(&self.0).listeners {
             listener();
         }
     }
@@ -195,8 +208,14 @@ impl Backend for Simulator {
         changed: Box<dyn Fn() + Send + Sync>,
         _ended: Box<dyn FnOnce() + Send>,
     ) -> Option<Box<dyn Send>> {
-        lock(&self.0).listeners.push(changed);
-        Some(Box::new(()))
+        let mut bus = lock(&self.0);
+        let id = bus.next_listener;
+        bus.next_listener += 1;
+        bus.listeners.push((id, changed));
+        Some(Box::new(Listener {
+            bus: self.0.clone(),
+            id,
+        }))
     }
 }
 
@@ -236,8 +255,11 @@ impl SimulatedModule {
     /// input does on a module nobody listens to.
     fn send(&self, message: InputMessage<'_>) {
         let report = input::encode(self.kind, message).expect("a report this module sends");
-        if lock(&self.mock.0).readers == 0 {
-            return;
+        {
+            let mock = lock(&self.mock.0);
+            if mock.readers == 0 || mock.unplugged {
+                return;
+            }
         }
         self.mock.push_input(&report);
         self.mock.settle();
@@ -510,6 +532,30 @@ mod tests {
         assert_eq!(dial.pictures(), [(0, jpeg)]);
         // A read the simulation does not model fails instead of panicking.
         assert!(module.led_brightness().is_err());
+    }
+
+    #[test]
+    fn a_pulled_module_takes_no_input_and_a_dropped_deck_is_let_go() {
+        let bus = Simulator::new();
+        let knobs = bus.plug(ModuleKind::Knobs3, "N");
+        let mut deck = bus.deck(DeckOptions::default());
+        deck.poll(WAIT).unwrap();
+
+        // Right after pulling, before the deck's reader has noticed.
+        let started = std::time::Instant::now();
+        bus.unplug("N");
+        knobs.press(0);
+        knobs.release(0);
+        assert!(started.elapsed() < Duration::from_secs(1));
+        // The same serial plugged again leaves the old handle dead.
+        let again = bus.plug(ModuleKind::Knobs3, "N");
+        knobs.press(1);
+
+        let waker = deck.waker();
+        drop(deck);
+        assert!(lock(&bus.0).listeners.is_empty());
+        waker.wake();
+        again.press(0);
     }
 
     #[test]

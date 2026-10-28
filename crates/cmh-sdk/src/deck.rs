@@ -143,7 +143,9 @@ pub enum DeckEvent {
     /// reported, so the picture of what is held and where the faders stand
     /// is right again; a press and release that both fell into the gap is
     /// not reported. Encoder steps in the gap are lost. The events of the
-    /// module that came before this one are complete and in order.
+    /// module that came before this one are complete and in order. With
+    /// [`DeckOptions::raw_reports`], only the replayed reports follow as
+    /// [`RawInput`](DeckEvent::RawInput).
     #[non_exhaustive]
     InputLost {
         id: ModuleId,
@@ -367,7 +369,9 @@ impl WholeState {
         match InputMessage::parse(kind, report) {
             Ok(InputMessage::ButtonStates(_)) => Some(Self::Buttons),
             Ok(InputMessage::FaderPositions(_)) => Some(Self::Faders),
-            Ok(InputMessage::Heartbeat { .. }) => Some(Self::Orientation),
+            // The decoder ignores other values, so they must not replace
+            // the last heartbeat that said something.
+            Ok(InputMessage::Heartbeat { status: 0 | 1 }) => Some(Self::Orientation),
             _ => None,
         }
     }
@@ -1217,6 +1221,16 @@ mod tests {
             .collect()
     }
 
+    /// Waits until the reader of a pulled module has let go of it, which it
+    /// does after telling the deck that it ends.
+    fn reader_ended(mock: &Mock) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while mock.0.lock().unwrap().readers > 0 {
+            assert!(Instant::now() < deadline, "the reader did not end");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     const KNOB_STEP: [u8; 9] = [0x01, 0x2a, 0x05, 0x00, 0x00, 0x03, 0xff, 0xff, 0x01];
 
     #[test]
@@ -1455,7 +1469,7 @@ mod tests {
         // ends and reports it, and the rescan that is due on this poll tries
         // to open the module again.
         knobs.unplug();
-        knobs.settle();
+        reader_ended(&knobs);
         assert_eq!(summary(&poll(&mut deck)), ["-N", "!N"]);
         // Still unusable: reported once, then retried silently.
         assert!(poll(&mut deck).is_empty());
@@ -2195,12 +2209,7 @@ mod tests {
         }
         knobs.settle();
         knobs.unplug();
-        // The reader has said that it ends once it let go of the module.
-        let deadline = Instant::now() + 5 * SECOND;
-        while knobs.0.lock().unwrap().readers > 0 {
-            assert!(Instant::now() < deadline, "the reader did not end");
-            std::thread::sleep(Duration::from_millis(5));
-        }
+        reader_ended(&knobs);
         assert_eq!(
             summary(&poll(&mut deck)),
             [

@@ -122,7 +122,8 @@ impl Mock {
     pub fn settle(&self) {
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut state = self.0.lock().unwrap();
-        while !(state.inputs.is_empty() && state.blocked == state.readers) {
+        // A pulled module's readers take nothing more.
+        while !(state.unplugged || state.inputs.is_empty() && state.blocked == state.readers) {
             let left = deadline.saturating_duration_since(Instant::now());
             assert!(!left.is_zero(), "the readers did not settle");
             state = self.1.wait_timeout(state, left).unwrap().0;
