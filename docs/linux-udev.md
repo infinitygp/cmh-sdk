@@ -1,4 +1,7 @@
-# Linux access
+# Linux hardware notes
+
+How the SDK was checked on Linux, and how Linux differs from Windows. To
+set up access to the modules, see [linux-permissions.md](linux-permissions.md).
 
 Status: verified on a natively installed Linux (CachyOS, kernel 7.2) with
 the Base, 15 LCD Keys, 3 Knobs, 2 Rollers and Dial Display
@@ -10,29 +13,24 @@ usbipd-win ([experiment 0012](experiments/0012-linux-hardware.md)). The
 ## Build dependencies
 
 The `hidapi` crate is used with its default hidraw backend, which compiles
-the bundled C library. That needs a C compiler, `pkg-config` and the libudev
-development headers (`libudev-dev` on Debian/Ubuntu, `systemd-devel` on
-Fedora, `systemd-libs` on Arch).
+the bundled C library; see
+[linux-permissions.md](linux-permissions.md#building-on-linux) for the
+packages.
 
-## Permissions
+## Permissions during the checks
 
-hidraw nodes are root-only by default. Listing modules, mount paths and
-placements works regardless; opening a module does not. A udev rule opens
-the MasterHUB modules to a group (tested, with `wheel`):
+The checks in experiments 0012 and 0020 opened the modules through this
+rule, which matches every device of the vendor and uses the
+administrative group `wheel`:
 
 ```udev
-# /etc/udev/rules.d/70-masterhub.rules
 KERNEL=="hidraw*", ATTRS{idVendor}=="2516", MODE="0660", GROUP="wheel"
 ```
 
-On a desktop with logind, `TAG+="uaccess"` instead of `MODE` / `GROUP` gives
-access to whoever is logged in at the seat; that variant is untested.
+It is kept here as the record of what was tested. The rules to use are the
+narrower ones in [linux-permissions.md](linux-permissions.md).
 
-```sh
-sudo udevadm control --reload-rules && sudo udevadm trigger
-```
-
-Without access `cmh` reports `permission denied opening /dev/hidrawN`.
+## Discovery and access timing
 
 `Deck` learns of arriving modules from an inotify watch of `/dev`, which
 needs no permission. The kernel creates a node before udev has given the
