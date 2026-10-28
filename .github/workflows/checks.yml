@@ -6,10 +6,16 @@
 name: checks
 
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
+  
+concurrency:
+  group: checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,7 +26,9 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libudev-dev pkg-config
       - run: rustup toolchain install stable --profile minimal --component rustfmt,clippy && rustup default stable
       - run: cargo fmt --all -- --check
@@ -35,7 +43,9 @@ jobs:
         toolchain: [stable, "1.88"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libudev-dev pkg-config
       - run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --component clippy && rustup default ${{ matrix.toolchain }}
@@ -52,7 +62,9 @@ jobs:
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libudev-dev pkg-config
       - run: rustup toolchain install stable --profile minimal && rustup default stable
       - run: cargo package -p cmh-sdk --locked
@@ -68,6 +80,8 @@ jobs:
     # Compiles only: the SDK has never been run on macOS.
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - run: rustup toolchain install stable --profile minimal && rustup default stable
       - run: cargo check -p cmh-sdk --all-targets --all-features --locked
