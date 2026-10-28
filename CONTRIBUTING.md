@@ -28,9 +28,17 @@ may take a while.
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
+cargo test -p cmh-sdk                          # default features
+cargo test -p cmh-sdk --features test-support  # without image
+RUSTDOCFLAGS="-D warnings" cargo doc -p cmh-sdk --all-features --no-deps
+cargo +1.88 test --workspace --all-features --locked   # minimum Rust version
 ```
 
-The tests need no hardware.
+The tests need no hardware. The `checks` workflow runs the same on Linux
+and Windows, the minimum Rust version on both, the packaged crate and a
+compile-only check on macOS; it is started by hand from the Actions tab.
+A change that affects hardware behaviour is checked on hardware as well,
+and the experiment note says on which platform.
 
 ## Commits
 
@@ -40,10 +48,10 @@ existing history.
 ## Publishing
 
 Only `crates/cmh-sdk` is published; `cmh-cli` keeps `publish = false`.
-`cargo package -p cmh-sdk` must pass and `cargo test --all-features` must pass
-in the unpacked `target/package/cmh-sdk-<version>` before the owner runs
-`cargo publish -p cmh-sdk`. The fixtures the tests read live in the crate so
-that the published package tests itself.
+`cargo package -p cmh-sdk` must pass, and `cargo test --all-features --locked`
+must pass in the `.crate` archive unpacked outside the repository, before
+the owner runs `cargo publish -p cmh-sdk`. The fixtures the tests read live
+in the crate so that the published package tests itself.
 
 ## License
 
