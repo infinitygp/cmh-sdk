@@ -22,10 +22,10 @@
 //! # Ok::<(), cmh_sdk::Error>(())
 //! ```
 
+use std::collections::VecDeque;
 use std::fmt;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use crate::devices::ModuleKind;
@@ -34,6 +34,7 @@ use crate::input::InputEvent;
 use crate::manager::{self, Manager};
 use crate::module::Module;
 use crate::placement::{self, Placement};
+use crate::protocol::InputMessage;
 use crate::protocol::frame::INPUT_REPORT_LEN;
 use crate::transport::{HidInterface, InputReader};
 use crate::watch;
@@ -131,6 +132,23 @@ pub enum DeckEvent {
         report: Vec<u8>,
         /// When the report was read, as for [`Input`](DeckEvent::Input).
         at: Instant,
+    },
+    /// Reports of this module did not fit in the queue because
+    /// [`Deck::poll`] was not called for a while (see
+    /// [`Deck::MAX_PENDING_REPORTS`]), and `dropped` of them were not
+    /// delivered one by one.
+    ///
+    /// The [`Input`](DeckEvent::Input) events that follow at once bring
+    /// buttons, faders and the orientation up to the last state the module
+    /// reported, so the picture of what is held and where the faders stand
+    /// is right again; a press and release that both fell into the gap is
+    /// not reported. Encoder steps in the gap are lost. The events of the
+    /// module that came before this one are complete and in order.
+    #[non_exhaustive]
+    InputLost {
+        id: ModuleId,
+        kind: ModuleKind,
+        dropped: usize,
     },
     /// An input report could not be decoded. The module stays usable.
     #[non_exhaustive]
@@ -311,7 +329,7 @@ impl Backend for Manager {
     }
 }
 
-/// What the threads of a deck tell it, in the order they happened.
+/// What the reader threads of a deck tell it, in the order it happened.
 #[derive(Debug)]
 enum Msg {
     /// A reader thread read a report.
@@ -322,26 +340,152 @@ enum Msg {
     },
     /// A reader thread stopped: its module is gone.
     ReaderEnded { slot: u64 },
+}
+
+/// The reports of a slot that did not fit in the queue.
+#[derive(Debug)]
+struct Lost {
+    slot: u64,
+    dropped: usize,
+    /// The last report of each kind that carries a whole state, oldest
+    /// first. Replaying them brings the decoder to the state the module
+    /// reported last.
+    states: Vec<(WholeState, Instant, Vec<u8>)>,
+}
+
+/// Reports that carry the state of every control of their kind, as
+/// opposed to encoder steps, which are relative.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WholeState {
+    Buttons,
+    Faders,
+    Orientation,
+}
+
+impl WholeState {
+    fn of(kind: ModuleKind, report: &[u8]) -> Option<Self> {
+        match InputMessage::parse(kind, report) {
+            Ok(InputMessage::ButtonStates(_)) => Some(Self::Buttons),
+            Ok(InputMessage::FaderPositions(_)) => Some(Self::Faders),
+            Ok(InputMessage::Heartbeat { .. }) => Some(Self::Orientation),
+            _ => None,
+        }
+    }
+}
+
+/// Everything waiting for the next [`Deck::poll`]. Its size is bounded:
+/// reports by [`Deck::MAX_PENDING_REPORTS`] per slot, departures by the
+/// number of reader threads, and the announcements and wake-ups are flags
+/// that a repetition does not add to.
+#[derive(Debug)]
+struct Queue {
+    msgs: VecDeque<Msg>,
+    /// Reports per slot in `msgs`.
+    pending: Vec<(u64, usize)>,
+    /// Slots that ran over, in the order they did. While a slot is here its
+    /// reports are not queued, so that none of them overtakes the loss.
+    lost: Vec<Lost>,
+    capacity: usize,
     /// The system says the device list may have changed.
-    DevicesChanged,
+    devices_changed: bool,
     /// The source of those announcements stopped: nothing more will come.
-    WatchEnded,
+    watch_ended: bool,
     /// A [`DeckWaker`] was used.
-    Wake,
+    woken: bool,
+}
+
+impl Queue {
+    fn is_empty(&self) -> bool {
+        self.msgs.is_empty()
+            && self.lost.is_empty()
+            && !(self.devices_changed || self.watch_ended || self.woken)
+    }
+
+    fn report(&mut self, slot: u64, kind: ModuleKind, at: Instant, report: Vec<u8>) {
+        let pending = match self.pending.iter_mut().find(|(s, _)| *s == slot) {
+            Some((_, count)) => count,
+            None => {
+                self.pending.push((slot, 0));
+                &mut self.pending.last_mut().expect("just pushed").1
+            }
+        };
+        let over = self.lost.iter().any(|l| l.slot == slot);
+        if !over && *pending < self.capacity {
+            *pending += 1;
+            self.msgs.push_back(Msg::Report { slot, at, report });
+            return;
+        }
+        let lost = match self.lost.iter().position(|l| l.slot == slot) {
+            Some(index) => &mut self.lost[index],
+            None => {
+                self.lost.push(Lost {
+                    slot,
+                    dropped: 0,
+                    states: Vec::new(),
+                });
+                self.lost.last_mut().expect("just pushed")
+            }
+        };
+        lost.dropped = lost.dropped.saturating_add(1);
+        // Encoder steps cannot be summed into one event of the same meaning,
+        // so only whole states are kept.
+        if let Some(state) = WholeState::of(kind, &report) {
+            lost.states.retain(|(kept, ..)| *kept != state);
+            lost.states.push((state, at, report));
+        }
+    }
+}
+
+/// What the threads of a deck share with it.
+#[derive(Debug)]
+struct Shared {
+    queue: Mutex<Queue>,
+    /// Signalled whenever the queue stops being empty.
+    ready: Condvar,
+}
+
+impl Shared {
+    fn new(capacity: usize) -> Self {
+        Self {
+            queue: Mutex::new(Queue {
+                msgs: VecDeque::new(),
+                pending: Vec::new(),
+                lost: Vec::new(),
+                capacity,
+                devices_changed: false,
+                watch_ended: false,
+                woken: false,
+            }),
+            ready: Condvar::new(),
+        }
+    }
+
+    /// The queue; a thread that panicked while holding it cannot have left
+    /// it half changed.
+    fn lock(&self) -> MutexGuard<'_, Queue> {
+        self.queue.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn update(&self, change: impl FnOnce(&mut Queue)) {
+        change(&mut self.lock());
+        self.ready.notify_one();
+    }
 }
 
 /// Wakes a [`Deck::poll`] from another thread, so that its caller can look
 /// at something else the moment it happens instead of when the poll times
 /// out. Obtained from [`Deck::waker`].
 #[derive(Debug, Clone)]
-pub struct DeckWaker(Sender<Msg>);
+pub struct DeckWaker(Weak<Shared>);
 
 impl DeckWaker {
     /// Makes the poll that is waiting, or if none is, the next one, return
-    /// at once with whatever it has, which may be nothing. Does nothing once
-    /// the deck is gone.
+    /// at once with whatever it has, which may be nothing. Wake-ups before
+    /// that poll count as one. Does nothing once the deck is gone.
     pub fn wake(&self) {
-        let _ = self.0.send(Msg::Wake);
+        if let Some(shared) = self.0.upgrade() {
+            shared.update(|queue| queue.woken = true);
+        }
     }
 }
 
@@ -364,8 +508,14 @@ struct Slot {
 }
 
 /// Reads reports from `reader` until its module is gone or the flag is set,
-/// and passes them on with the time they were read.
-fn spawn_reader(mut reader: Box<dyn InputReader>, slot: u64, to: Sender<Msg>) -> Result<StopFlag> {
+/// and passes them on with the time they were read. Never waits for the
+/// deck: what does not fit is counted as lost.
+fn spawn_reader(
+    mut reader: Box<dyn InputReader>,
+    slot: u64,
+    kind: ModuleKind,
+    to: Arc<Shared>,
+) -> Result<StopFlag> {
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
     std::thread::Builder::new()
@@ -379,17 +529,19 @@ fn spawn_reader(mut reader: Box<dyn InputReader>, slot: u64, to: Sender<Msg>) ->
                 let read = reader
                     .read_input(&mut buf, READ_WAIT)
                     .or_else(|_| reader.read_input(&mut buf, Duration::ZERO));
+                // The slot is gone; nothing it read belongs anywhere.
+                if flag.load(Ordering::Relaxed) {
+                    return;
+                }
                 match read {
                     Ok(0) => {}
                     Ok(len) => {
                         let at = Instant::now();
                         let report = buf[..len.min(INPUT_REPORT_LEN)].to_vec();
-                        if to.send(Msg::Report { slot, at, report }).is_err() {
-                            return;
-                        }
+                        to.update(|queue| queue.report(slot, kind, at, report));
                     }
                     Err(_) => {
-                        let _ = to.send(Msg::ReaderEnded { slot });
+                        to.update(|queue| queue.msgs.push_back(Msg::ReaderEnded { slot }));
                         return;
                     }
                 }
@@ -411,8 +563,13 @@ fn after(by: Duration) -> Instant {
 /// A deck is meant to live on one thread: call [`poll`](Self::poll) in a
 /// loop and send commands through [`module`](Self::module) between polls.
 /// Input is read by a thread per open module, which waits in the read and
-/// costs nothing while a module is quiet; reports queue up in memory until
-/// the next poll.
+/// costs nothing while a module is quiet. Reports wait for the next poll in
+/// a queue of bounded size: a module that sends more than
+/// [`MAX_PENDING_REPORTS`](Self::MAX_PENDING_REPORTS) reports between two
+/// polls loses the excess, which is reported as
+/// [`DeckEvent::InputLost`]. A reader thread never waits for the poll, and
+/// ends within a few seconds after its module is closed or the deck is
+/// dropped.
 pub struct Deck {
     backend: Box<dyn Backend>,
     options: DeckOptions,
@@ -428,8 +585,7 @@ pub struct Deck {
     watch: Option<Box<dyn Send>>,
     woken: bool,
     next_slot: u64,
-    sender: Sender<Msg>,
-    receiver: Receiver<Msg>,
+    shared: Arc<Shared>,
     /// Passes of the loop in `poll`, for the tests that check it does not spin.
     #[cfg(test)]
     passes: usize,
@@ -448,6 +604,12 @@ impl fmt::Debug for Deck {
 }
 
 impl Deck {
+    /// How many input reports of one module may wait for the next
+    /// [`poll`](Self::poll). A fader that is moved sends about 60 reports a
+    /// second (`fixtures/inputs/faders.txt`), so this covers several seconds
+    /// of continuous operation.
+    pub const MAX_PENDING_REPORTS: usize = 256;
+
     /// Creates a deck with default options. Modules show up as
     /// [`DeckEvent::Connected`] from the first [`poll`](Self::poll).
     pub fn new() -> Result<Self> {
@@ -459,17 +621,13 @@ impl Deck {
     }
 
     pub(crate) fn with_backend(backend: Box<dyn Backend>, options: DeckOptions) -> Self {
-        let (sender, receiver) = mpsc::channel();
+        let shared = Arc::new(Shared::new(Self::MAX_PENDING_REPORTS));
         // Before the first scan, so that nothing between the two is missed.
         let watch = options.device_events.then(|| {
-            let (changed, ended) = (sender.clone(), sender.clone());
+            let (changed, ended) = (shared.clone(), shared.clone());
             backend.watch(
-                Box::new(move || {
-                    let _ = changed.send(Msg::DevicesChanged);
-                }),
-                Box::new(move || {
-                    let _ = ended.send(Msg::WatchEnded);
-                }),
+                Box::new(move || changed.update(|queue| queue.devices_changed = true)),
+                Box::new(move || ended.update(|queue| queue.watch_ended = true)),
             )
         });
         Self {
@@ -482,8 +640,7 @@ impl Deck {
             watch: watch.flatten(),
             woken: false,
             next_slot: 0,
-            sender,
-            receiver,
+            shared,
             #[cfg(test)]
             passes: 0,
         }
@@ -514,7 +671,7 @@ impl Deck {
     /// A handle that makes [`poll`](Self::poll) return early, for a caller
     /// that also waits for something else and has to be woken by it.
     pub fn waker(&self) -> DeckWaker {
-        DeckWaker(self.sender.clone())
+        DeckWaker(Arc::downgrade(&self.shared))
     }
 
     /// Waits up to `timeout` for something to happen and returns it.
@@ -557,10 +714,14 @@ impl Deck {
                 }
                 wait = wait.min(deadline - now);
             }
-            // The deck holds a sender itself, so this only ever times out.
-            if let Ok(msg) = self.receiver.recv_timeout(wait) {
-                self.apply(msg, &mut events);
-            }
+            // Whatever arrived is taken by the drain at the top.
+            let queue = self.shared.lock();
+            drop(
+                self.shared
+                    .ready
+                    .wait_timeout_while(queue, wait, |queue| queue.is_empty())
+                    .unwrap_or_else(PoisonError::into_inner),
+            );
         }
     }
 
@@ -587,63 +748,95 @@ impl Deck {
         }
     }
 
+    /// Takes everything that is waiting. A slot's loss comes after the
+    /// reports it queued before it ran over, and before its departure.
     fn drain(&mut self, events: &mut Vec<DeckEvent>) {
-        while let Ok(msg) = self.receiver.try_recv() {
-            self.apply(msg, events);
+        let (msgs, mut lost, changed, ended, woken) = {
+            let mut queue = self.shared.lock();
+            queue.pending.clear();
+            (
+                std::mem::take(&mut queue.msgs),
+                std::mem::take(&mut queue.lost),
+                std::mem::take(&mut queue.devices_changed),
+                std::mem::take(&mut queue.watch_ended),
+                std::mem::take(&mut queue.woken),
+            )
+        };
+        self.woken |= woken;
+        if changed {
+            self.scan_within(SETTLE);
+        }
+        // Nothing announces changes any more, so the timer has to find them,
+        // starting with whatever went unseen meanwhile.
+        if ended && self.watch.take().is_some() {
+            self.scan_within(Duration::ZERO);
+        }
+        for msg in msgs {
+            match msg {
+                Msg::Report { slot, at, report } => self.report(slot, at, &report, events),
+                Msg::ReaderEnded { slot } => {
+                    if let Some(index) = lost.iter().position(|l| l.slot == slot) {
+                        self.recover(lost.remove(index), events);
+                    }
+                    // Already gone if a rescan was first.
+                    if let Some(index) = self.slots.iter().position(|s| s.id == slot) {
+                        // A module that is still (or again) listed is
+                        // reopened by the rescan and announced with a fresh
+                        // `Connected`.
+                        events.push(DeckEvent::Disconnected(self.slots.remove(index).info));
+                        self.scan_within(RECONNECT_PAUSE);
+                    }
+                }
+            }
+        }
+        for lost in lost {
+            self.recover(lost, events);
         }
     }
 
-    fn apply(&mut self, msg: Msg, events: &mut Vec<DeckEvent>) {
-        match msg {
-            Msg::Wake => self.woken = true,
-            Msg::DevicesChanged => self.scan_within(SETTLE),
-            Msg::WatchEnded => {
-                // Nothing announces changes any more, so the timer has to
-                // find them, starting with whatever went unseen meanwhile.
-                if self.watch.take().is_some() {
-                    self.scan_within(Duration::ZERO);
-                }
-            }
-            Msg::ReaderEnded { slot } => {
-                // Already gone if a rescan was first.
-                if let Some(index) = self.slots.iter().position(|s| s.id == slot) {
-                    // A module that is still (or again) listed is reopened
-                    // by the rescan and announced with a fresh `Connected`.
-                    events.push(DeckEvent::Disconnected(self.slots.remove(index).info));
-                    self.scan_within(RECONNECT_PAUSE);
-                }
-            }
-            Msg::Report { slot, at, report } => {
-                // Nothing to do for a slot that was dropped meanwhile.
-                let Some(slot) = self.slots.iter_mut().find(|s| s.id == slot) else {
-                    return;
-                };
-                let (id, kind) = (&slot.info.id, slot.info.kind);
-                if self.options.raw_reports {
-                    events.push(DeckEvent::RawInput {
-                        id: id.clone(),
-                        kind,
-                        report: report.clone(),
-                        at,
-                    });
-                }
-                match slot.module.decode(&report) {
-                    Ok(decoded) => {
-                        events.extend(decoded.into_iter().map(|event| DeckEvent::Input {
-                            id: id.clone(),
-                            kind,
-                            event,
-                            at,
-                        }))
-                    }
-                    Err(error) => events.push(DeckEvent::Undecodable {
-                        id: id.clone(),
-                        kind,
-                        error,
-                        at,
-                    }),
-                }
-            }
+    /// Reports a loss and replays the states that were kept.
+    fn recover(&mut self, lost: Lost, events: &mut Vec<DeckEvent>) {
+        let Some(slot) = self.slots.iter().find(|s| s.id == lost.slot) else {
+            return;
+        };
+        events.push(DeckEvent::InputLost {
+            id: slot.info.id.clone(),
+            kind: slot.info.kind,
+            dropped: lost.dropped,
+        });
+        for (_, at, report) in lost.states {
+            self.report(lost.slot, at, &report, events);
+        }
+    }
+
+    fn report(&mut self, slot: u64, at: Instant, report: &[u8], events: &mut Vec<DeckEvent>) {
+        // Nothing to do for a slot that was dropped meanwhile: its reports
+        // never reach a later session of the same module.
+        let Some(slot) = self.slots.iter_mut().find(|s| s.id == slot) else {
+            return;
+        };
+        let (id, kind) = (&slot.info.id, slot.info.kind);
+        if self.options.raw_reports {
+            events.push(DeckEvent::RawInput {
+                id: id.clone(),
+                kind,
+                report: report.to_vec(),
+                at,
+            });
+        }
+        match slot.module.decode(report) {
+            Ok(decoded) => events.extend(decoded.into_iter().map(|event| DeckEvent::Input {
+                id: id.clone(),
+                kind,
+                event,
+                at,
+            })),
+            Err(error) => events.push(DeckEvent::Undecodable {
+                id: id.clone(),
+                kind,
+                error,
+                at,
+            }),
         }
     }
 
@@ -712,7 +905,7 @@ impl Deck {
                         }
                     }
                     let id = self.next_slot;
-                    match spawn_reader(reader, id, self.sender.clone()) {
+                    match spawn_reader(reader, id, info.kind, self.shared.clone()) {
                         Ok(reader) => {
                             self.next_slot += 1;
                             self.failed.retain(|f| !manager::same_module(f, interface));
@@ -1019,6 +1212,7 @@ mod tests {
                 DeckEvent::RawInput { id, report, .. } => format!("{id}:raw{}", report.len()),
                 DeckEvent::Undecodable { id, .. } => format!("{id}:undecodable"),
                 DeckEvent::OpenFailed { id, .. } => format!("!{id}"),
+                DeckEvent::InputLost { id, dropped, .. } => format!("{id}:lost{dropped}"),
             })
             .collect()
     }
@@ -1793,6 +1987,308 @@ mod tests {
             ["N:EncoderDelta { index: 2, delta: 1 }"]
         );
         assert_eq!(deck.modules().count(), 1);
+    }
+
+    /// The 15 LCD Keys report with the keys in `pressed` held.
+    fn keys_report(pressed: &[usize]) -> Vec<u8> {
+        let mut report = vec![0x01, 0x34, 17, 0x00, 0x02, 15];
+        report.extend((0..15).map(|key| u8::from(pressed.contains(&key))));
+        report
+    }
+
+    fn faders_report(positions: [u8; 5]) -> Vec<u8> {
+        let mut report = vec![0x01, 0x2a, 0x07, 0x00, 0x02, 0x05];
+        report.extend(positions);
+        report
+    }
+
+    fn turn(id: &str, index: usize) -> String {
+        format!("{id}:EncoderDelta {{ index: {index}, delta: 1 }}")
+    }
+
+    /// Lets each reader of `deck` queue at most `capacity` reports.
+    fn queue_of(deck: &Deck, capacity: usize) {
+        deck.shared.lock().capacity = capacity;
+    }
+
+    #[test]
+    fn a_slow_consumer_loses_nothing_within_the_queue_size() {
+        let bus = FakeBackend::default();
+        let knobs = bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let mut deck = bus.deck(DeckOptions::default());
+        poll(&mut deck);
+
+        let fits = Deck::MAX_PENDING_REPORTS;
+        for i in 0..fits {
+            knobs.push_input(&knob_step(i % 3));
+        }
+        knobs.settle();
+        std::thread::sleep(Duration::from_millis(50));
+        let events = summary(&poll(&mut deck));
+        let expected: Vec<String> = (0..fits).map(|i| turn("N", i % 3)).collect();
+        assert_eq!(events, expected);
+
+        // One more than fits: the last one is reported as lost.
+        for i in 0..=fits {
+            knobs.push_input(&knob_step(i % 3));
+        }
+        knobs.settle();
+        let events = summary(&poll(&mut deck));
+        assert_eq!(events.len(), fits + 1);
+        assert_eq!(events[..fits], expected);
+        assert_eq!(events[fits], "N:lost1");
+    }
+
+    #[test]
+    fn a_stalled_consumer_keeps_memory_bounded_and_learns_what_was_lost() {
+        let bus = FakeBackend::default();
+        let knobs = bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let mut deck = bus.deck(DeckOptions::default());
+        queue_of(&deck, 4);
+        poll(&mut deck);
+
+        for i in 0..10_000 {
+            knobs.push_input(&knob_step(i % 3));
+        }
+        // The reader took everything without waiting for the deck.
+        knobs.settle();
+        {
+            let queue = deck.shared.lock();
+            assert_eq!(queue.msgs.len(), 4);
+            assert_eq!(queue.lost.len(), 1);
+            // Encoder steps leave no state behind to replay.
+            assert!(queue.lost[0].states.is_empty());
+        }
+        let events = summary(&poll(&mut deck));
+        assert_eq!(
+            events,
+            [
+                turn("N", 0),
+                turn("N", 1),
+                turn("N", 2),
+                turn("N", 0),
+                "N:lost9996".to_owned()
+            ]
+        );
+
+        // Recovered: what comes next is delivered as usual, without a loss.
+        knobs.push_input(&knob_step(1));
+        knobs.settle();
+        assert_eq!(summary(&poll(&mut deck)), [turn("N", 1)]);
+        assert!(poll(&mut deck).is_empty());
+    }
+
+    #[test]
+    fn held_buttons_are_right_again_after_a_loss() {
+        let bus = FakeBackend::default();
+        let keys = bus.plug(ModuleKind::Keys15, "K", &[1]);
+        let mut deck = bus.deck(DeckOptions::default());
+        queue_of(&deck, 2);
+        poll(&mut deck);
+
+        // Press and release 0, press 1, press 2, release 1: key 2 is held.
+        for pressed in [&[0][..], &[], &[1], &[1, 2], &[2]] {
+            keys.push_input(&keys_report(pressed));
+        }
+        keys.settle();
+        assert_eq!(
+            summary(&poll(&mut deck)),
+            [
+                "K:ButtonDown { index: 0 }",
+                "K:ButtonUp { index: 0 }",
+                "K:lost3",
+                // Key 1 went down and up in the gap and is not made up.
+                "K:ButtonDown { index: 2 }",
+            ]
+        );
+        keys.push_input(&keys_report(&[]));
+        keys.settle();
+        assert_eq!(summary(&poll(&mut deck)), ["K:ButtonUp { index: 2 }"]);
+    }
+
+    #[test]
+    fn faders_end_up_at_their_last_position_after_a_loss() {
+        let bus = FakeBackend::default();
+        let faders = bus.plug(ModuleKind::Faders5, "F", &[1]);
+        let mut deck = bus.deck(DeckOptions::default());
+        queue_of(&deck, 1);
+        // Positions 10, 20, 30, 40, 50 are read when the module connects.
+        assert_eq!(poll(&mut deck).len(), 6);
+
+        for first in [11, 12, 13, 14] {
+            let last = if first == 14 { 51 } else { 50 };
+            faders.push_input(&faders_report([first, 20, 30, 40, last]));
+        }
+        faders.settle();
+        assert_eq!(
+            summary(&poll(&mut deck)),
+            [
+                "F:AnalogChanged { index: 0, value: 11 }",
+                "F:lost3",
+                "F:AnalogChanged { index: 0, value: 14 }",
+                "F:AnalogChanged { index: 4, value: 51 }",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_orientation_is_replayed_after_a_loss() {
+        let bus = FakeBackend::default();
+        let base = bus.plug(ModuleKind::Base, "B", &[1]);
+        let mut deck = bus.deck(DeckOptions::default());
+        queue_of(&deck, 1);
+        poll(&mut deck);
+
+        let heartbeat = |status: u8| [0x01, 0x2b, 0x01, 0x00, status];
+        for status in [1, 1, 0, 1, 0] {
+            base.push_input(&heartbeat(status));
+        }
+        base.settle();
+        assert_eq!(
+            summary(&poll(&mut deck)),
+            [
+                "B:OrientationChanged { upright: false }",
+                "B:lost4",
+                "B:OrientationChanged { upright: true }",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_busy_module_does_not_cost_a_quiet_one_its_input() {
+        let bus = FakeBackend::default();
+        let knobs = bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let rollers = bus.plug(ModuleKind::Rollers2, "R", &[2]);
+        let mut deck = bus.deck(DeckOptions::default());
+        queue_of(&deck, 3);
+        poll(&mut deck);
+
+        for i in 0..100 {
+            knobs.push_input(&knob_step(i % 3));
+        }
+        knobs.settle();
+        rollers.push_input(&[0x01, 0x2a, 0x04, 0x00, 0x01, 0x02, 0x01, 0xff]);
+        rollers.settle();
+        let events = summary(&poll(&mut deck));
+        assert_eq!(
+            events,
+            [
+                turn("N", 0),
+                turn("N", 1),
+                turn("N", 2),
+                "R:EncoderDelta { index: 0, delta: 1 }".to_owned(),
+                "N:lost97".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_loss_is_reported_before_the_module_leaves() {
+        let bus = FakeBackend::default();
+        let knobs = bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let mut deck = bus.deck(DeckOptions::default());
+        queue_of(&deck, 2);
+        poll(&mut deck);
+
+        for i in 0..5 {
+            knobs.push_input(&knob_step(i % 3));
+        }
+        knobs.settle();
+        knobs.unplug();
+        // The reader has said that it ends once it let go of the module.
+        let deadline = Instant::now() + 5 * SECOND;
+        while knobs.0.lock().unwrap().readers > 0 {
+            assert!(Instant::now() < deadline, "the reader did not end");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(
+            summary(&poll(&mut deck)),
+            [
+                turn("N", 0),
+                turn("N", 1),
+                "N:lost3".to_owned(),
+                "-N".to_owned(),
+                "!N".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn reports_of_an_earlier_session_never_reach_a_later_one() {
+        let bus = FakeBackend::default();
+        bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let mut deck = bus.deck(DeckOptions::default());
+        queue_of(&deck, 1);
+        poll(&mut deck);
+        let first = deck.slots[0].id;
+
+        bus.unplug("N");
+        assert_eq!(summary(&poll(&mut deck)), ["-N"]);
+        bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        assert_eq!(summary(&poll(&mut deck)), ["+N"]);
+        assert_ne!(deck.slots[0].id, first);
+
+        // A reader of the first session that was still in a read hands in
+        // what it got: one report queued, one lost.
+        deck.shared.update(|queue| {
+            for _ in 0..2 {
+                let report = keys_report(&[]);
+                queue.report(first, ModuleKind::Knobs3, Instant::now(), report);
+            }
+            queue.msgs.push_back(Msg::ReaderEnded { slot: first });
+        });
+        assert!(poll(&mut deck).is_empty());
+        assert_eq!(deck.modules().count(), 1);
+    }
+
+    #[test]
+    fn wake_ups_and_announcements_do_not_pile_up() {
+        let bus = FakeBackend::default();
+        let mut deck = bus.event_deck(DeckOptions::default());
+        poll(&mut deck);
+        let scans = bus.scans();
+
+        let waker = deck.waker();
+        for _ in 0..100_000 {
+            waker.wake();
+            bus.changed();
+        }
+        assert!(deck.shared.lock().msgs.is_empty());
+        let started = Instant::now();
+        assert!(deck.poll(10 * SECOND).unwrap().is_empty());
+        assert!(started.elapsed() < SECOND, "{:?}", started.elapsed());
+        // All of it was one wake-up and one read of the device list.
+        assert!(deck.poll(Duration::from_millis(200)).unwrap().is_empty());
+        assert_eq!(bus.scans(), scans + 1);
+        assert!(started.elapsed() >= Duration::from_millis(200));
+
+        drop(deck);
+        waker.wake();
+    }
+
+    #[test]
+    fn readers_end_after_the_deck_is_dropped() {
+        let bus = FakeBackend::default();
+        let knobs = bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let mut deck = bus.deck(DeckOptions::default());
+        poll(&mut deck);
+        knobs.settle();
+        assert_eq!(knobs.0.lock().unwrap().readers, 1);
+        // Reports that nobody will take any more.
+        queue_of(&deck, 1);
+        for i in 0..10 {
+            knobs.push_input(&knob_step(i % 3));
+        }
+        knobs.settle();
+        let shared = Arc::downgrade(&deck.shared);
+
+        drop(deck);
+        // The reader leaves at the end of the read it is in.
+        let deadline = Instant::now() + READ_WAIT + 2 * SECOND;
+        while knobs.0.lock().unwrap().readers > 0 || shared.upgrade().is_some() {
+            assert!(Instant::now() < deadline, "the reader did not end");
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 
     #[test]

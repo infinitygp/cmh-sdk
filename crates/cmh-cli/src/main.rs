@@ -453,6 +453,9 @@ fn monitor(select: Select, raw: bool, heartbeat: bool, limit: Option<Duration>) 
                 } => {
                     eprintln!("cannot open {}: {error} (will retry)", label(&interface))
                 }
+                DeckEvent::InputLost { kind, dropped, .. } => {
+                    println!("# {t:9.3} {:<12} {dropped} reports lost", kind.name())
+                }
                 _ => {}
             }
         }
