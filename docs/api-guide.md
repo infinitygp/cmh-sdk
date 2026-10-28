@@ -32,6 +32,12 @@ happened, oldest first. An empty list means that the timeout elapsed or a
 it takes. `poll` fails only when the HID backend itself fails; problems of a
 single module are events.
 
+If reading the device list fails, `poll` returns that error, and nothing
+that already happened is lost: the events gathered before the failure,
+including what a partly done rescan found (modules connected or gone), are
+returned first by the next poll, each once. The list is read again within a
+second, so keep polling after such an error.
+
 Between polls, `deck.modules()` lists the open modules, `deck.info(&id)`
 describes one and `deck.module(&id)` gives a `&Module` for drawing,
 lighting and queries. Input stays with the deck: it arrives only through
@@ -229,7 +235,7 @@ All fallible calls return `cmh_sdk::Result<T>` with `cmh_sdk::Error`:
 | `MalformedReport` | A report did not have the documented shape. | Not fatal. |
 | `WrongDevice` | A path now leads to another device. | The deck reports it as `OpenFailed` and tries again; with `Manager`, refresh and open again. |
 | `NotFound` | `Manager::open` found no module with that serial. | |
-| `Backend` | The HID library failed. | Usually environmental; report it if it persists. |
+| `Backend` | The HID library failed. | From `poll`: keep polling; no event is lost and the device list is read again within a second. Report it if it persists. |
 
 A command that fails part-way, such as a picture upload interrupted by
 unplugging, may have reached the module in part. Commands are not
