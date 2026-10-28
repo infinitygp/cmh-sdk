@@ -15,6 +15,8 @@
 //! - [`placement`]: where a module sits on the base
 //! - `picture` (cargo feature `image`): converts pictures for the displays
 //! - [`fixture`]: text format for recorded reports
+//! - `simulator` (cargo feature `test-support`): modules without hardware,
+//!   for an application's own tests
 //!
 //! Only behaviour that was confirmed against real hardware is implemented;
 //! see `docs/feature-matrix.md` for the current status.
@@ -46,7 +48,10 @@ pub mod module;
 pub mod picture;
 pub mod placement;
 pub mod protocol;
-#[cfg(test)]
+#[cfg(feature = "test-support")]
+pub mod simulator;
+#[cfg(any(test, feature = "test-support"))]
+#[cfg_attr(not(test), allow(dead_code))]
 mod testing;
 mod transport;
 mod watch;

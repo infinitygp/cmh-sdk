@@ -19,10 +19,17 @@ all-features = true
 # Converts PNG / JPEG files and raw pixels into the JPEG flavour the display
 # modules accept (`cmh_sdk::picture`).
 image = ["dep:image"]
+# Simulated modules and a deck that uses them, for testing an application
+# without the hardware (`cmh_sdk::simulator`).
+test-support = []
 
 [[example]]
 name = "show_picture"
 required-features = ["image"]
+
+[[test]]
+name = "simulated_application"
+required-features = ["test-support"]
 
 [dependencies]
 hidapi.workspace = true

@@ -1,4 +1,4 @@
-//! Test doubles shared by the unit tests.
+//! Test doubles shared by the unit tests and the simulator.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
@@ -187,7 +187,9 @@ impl Transport for Mock {
             .features
             .iter()
             .find(|f| f[0] == buf[0])
-            .expect("unexpected feature read")
+            .ok_or_else(|| {
+                Error::Backend(format!("feature report {:#04x} is not simulated", buf[0]))
+            })?
             .clone();
         buf[..report.len()].copy_from_slice(&report);
         Ok(report.len())

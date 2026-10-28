@@ -153,6 +153,35 @@ impl<'a> InputMessage<'a> {
     }
 }
 
+/// Builds the report that [`InputMessage::parse`] reads back as `message`,
+/// for the simulated modules. `None` if `kind` sends no such report.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn encode(kind: ModuleKind, message: InputMessage<'_>) -> Option<Vec<u8>> {
+    let layout = layout(kind);
+    let typed = |(code, count): (u8, u8), values: &[u8]| {
+        (values.len() == usize::from(count)).then(|| [&[code, count][..], values].concat())
+    };
+    let (tag, payload) = match message {
+        InputMessage::Heartbeat { status } if kind == ModuleKind::Base => {
+            (layout.tag_base + 1, vec![status])
+        }
+        InputMessage::EncoderSteps(steps) => (layout.tag_base, typed(layout.encoders?, steps)?),
+        InputMessage::ButtonStates(states) => (layout.tag_base, typed(layout.buttons?, states)?),
+        InputMessage::FaderPositions(positions) => {
+            (layout.tag_base, typed(layout.faders?, positions)?)
+        }
+        _ => return None,
+    };
+    let len = u16::try_from(payload.len()).ok()?.to_le_bytes();
+    Some(
+        [
+            &[crate::protocol::frame::INPUT_REPORT_ID, tag, len[0], len[1]][..],
+            &payload,
+        ]
+        .concat(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -315,5 +344,40 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn encode_is_read_back_by_parse() {
+        let messages = [
+            (ModuleKind::Base, InputMessage::Heartbeat { status: 0 }),
+            (
+                ModuleKind::Knobs3,
+                InputMessage::EncoderSteps(&[0xff, 0x01, 0x00]),
+            ),
+            (ModuleKind::Knobs3, InputMessage::ButtonStates(&[0, 1, 0])),
+            (
+                ModuleKind::Rollers2,
+                InputMessage::EncoderSteps(&[0x00, 0xff]),
+            ),
+            (ModuleKind::Keys15, InputMessage::ButtonStates(&[1; 15])),
+            (ModuleKind::DialDisplay, InputMessage::EncoderSteps(&[0x01])),
+            (ModuleKind::DialDisplay, InputMessage::ButtonStates(&[1])),
+            (
+                ModuleKind::Faders5,
+                InputMessage::FaderPositions(&[0, 25, 50, 75, 100]),
+            ),
+        ];
+        for (kind, message) in messages {
+            let report = encode(kind, message).unwrap();
+            assert_eq!(
+                InputMessage::parse(kind, &report).unwrap(),
+                message,
+                "{kind}"
+            );
+        }
+        // What a module does not send, or not in that size, is not built.
+        assert!(encode(ModuleKind::Rollers2, InputMessage::ButtonStates(&[1, 0])).is_none());
+        assert!(encode(ModuleKind::Knobs3, InputMessage::EncoderSteps(&[0xff])).is_none());
+        assert!(encode(ModuleKind::Keys15, InputMessage::Heartbeat { status: 0 }).is_none());
     }
 }
