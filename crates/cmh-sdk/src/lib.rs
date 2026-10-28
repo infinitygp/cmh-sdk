@@ -65,3 +65,8 @@ pub use module::Module;
 pub use placement::{Placement, Rotation};
 pub use protocol::led::LedMode;
 pub use transport::{HidInterface, enumerate};
+
+// Compiles the examples of the crate's README as doctests.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
