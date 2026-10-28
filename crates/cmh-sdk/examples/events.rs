@@ -29,7 +29,16 @@ fn main() -> cmh_sdk::Result<()> {
                 DeckEvent::Disconnected(info) => {
                     println!("disconnected {} ({})", info.kind, info.id)
                 }
+                DeckEvent::Relocated(info) => {
+                    println!(
+                        "relocated    {} ({}): {:?}",
+                        info.kind, info.id, info.placement
+                    )
+                }
                 DeckEvent::Input { kind, event, .. } => println!("{kind}: {event:?}"),
+                DeckEvent::InputLost { kind, dropped, .. } => {
+                    println!("{kind}: {dropped} reports lost, state restored")
+                }
                 DeckEvent::OpenFailed {
                     interface, error, ..
                 } => {
