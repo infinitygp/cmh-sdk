@@ -30,7 +30,10 @@ pub const STEP_NONE: u8 = 0xff;
 pub const FADER_MAX: u8 = 100;
 
 /// A decoded input report. Slices hold one byte per control, in index order.
+///
+/// Further kinds of report may be added as they are understood.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum InputMessage<'a> {
     /// Periodic report sent by the base: `1` while it lies flat, `0` while
     /// it stands upright on its short side.

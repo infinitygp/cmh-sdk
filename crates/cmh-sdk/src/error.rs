@@ -13,8 +13,11 @@ pub enum Error {
     #[error("module disconnected: {0}")]
     Disconnected(String),
 
+    /// The operating system refused to open the module. On Linux the user
+    /// needs access to the `hidraw` node; the crate's README shows a udev
+    /// rule that grants it.
     #[error(
-        "permission denied opening {path}; on Linux install the udev rule from docs/linux-udev.md"
+        "permission denied opening {path}; on Linux a udev rule must give the user access to the MasterHUB hidraw nodes"
     )]
     PermissionDenied { path: String },
 
