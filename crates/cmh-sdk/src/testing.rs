@@ -221,7 +221,13 @@ pub(crate) struct MockReader(Mock);
 
 impl Drop for MockReader {
     fn drop(&mut self) {
-        self.0.0.lock().unwrap().readers -= 1;
+        // Also while a panicking test unwinds with the lock poisoned: a
+        // second panic here would abort every test of the process.
+        self.0
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .readers -= 1;
         self.0.1.notify_all();
     }
 }

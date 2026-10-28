@@ -1791,13 +1791,17 @@ mod tests {
         }
         let (passes, scans) = (deck.passes, bus.scans());
 
-        assert!(deck.poll(Duration::from_millis(500)).unwrap().is_empty());
+        let idle = Duration::from_millis(500);
+        assert!(deck.poll(idle).unwrap().is_empty());
         // One pass to start, one when the time is up.
         assert!(deck.passes - passes <= 2, "{} passes", deck.passes - passes);
         assert_eq!(bus.scans(), scans);
+        // Each reader sits in the read it started with, and starts another
+        // only when the wait of that one is over (250 ms on Windows).
+        let reads = 1 + (idle.as_millis() / READ_WAIT.as_millis()) as usize;
         for mock in &mocks {
-            // Each reader sits in the one read it started with.
-            assert_eq!(mock.0.lock().unwrap().read_timeouts.len(), 1);
+            let started = mock.0.lock().unwrap().read_timeouts.len();
+            assert!(started <= reads, "{started} reads");
         }
     }
 
