@@ -590,6 +590,8 @@ pub struct Deck {
     woken: bool,
     next_slot: u64,
     shared: Arc<Shared>,
+    /// Events of a poll that failed, for the next one.
+    carried: Vec<DeckEvent>,
     /// Passes of the loop in `poll`, for the tests that check it does not spin.
     #[cfg(test)]
     passes: usize,
@@ -645,6 +647,7 @@ impl Deck {
             woken: false,
             next_slot: 0,
             shared,
+            carried: Vec::new(),
             #[cfg(test)]
             passes: 0,
         }
@@ -686,11 +689,15 @@ impl Deck {
     /// takes. Fails only when the HID backend itself does; problems with
     /// single modules are events.
     ///
+    /// A failure to read the device list loses nothing: the events gathered
+    /// before it, including what a partly done rescan found, are returned
+    /// first by the next poll, and the list is read again within a second.
+    ///
     /// The thread sleeps until a report, a device change, the next rescan or
     /// the timeout, whichever is first.
     pub fn poll(&mut self, timeout: Duration) -> Result<Vec<DeckEvent>> {
         let deadline = Instant::now().checked_add(timeout);
-        let mut events = Vec::new();
+        let mut events = std::mem::take(&mut self.carried);
         loop {
             #[cfg(test)]
             {
@@ -701,7 +708,14 @@ impl Deck {
             self.drain(&mut events);
             if self.next_scan.is_none_or(|t| t <= Instant::now()) {
                 self.next_scan = Some(after(self.rescan_interval()));
-                self.rescan(&mut events)?;
+                if let Err(error) = self.rescan(&mut events) {
+                    // The events were taken from the queue, and a rescan
+                    // that stopped half way may have opened or dropped
+                    // modules already.
+                    self.carried = events;
+                    self.scan_within(POLLING_RESCAN);
+                    return Err(error);
+                }
             }
             if self.woken || !events.is_empty() {
                 self.woken = false;
@@ -1061,6 +1075,8 @@ mod tests {
         /// Serial listed instead of the real one while the module behind
         /// the path is in the state an empty read leaves (experiment 0024).
         garbled: Vec<(CString, String)>,
+        /// Numbers of the scans (counting from 1) that fail.
+        failing: Vec<usize>,
         /// Whether the bus announces changes, and whom to tell.
         events: bool,
         on_change: Option<OnChange>,
@@ -1074,6 +1090,9 @@ mod tests {
         fn scan(&mut self) -> Result<Vec<HidInterface>> {
             let mut bus = self.0.lock().unwrap();
             bus.scans += 1;
+            if bus.failing.contains(&bus.scans) {
+                return Err(Error::Backend("scripted enumeration failure".to_owned()));
+            }
             let mut listed = bus.listed.clone();
             for (path, wrong) in &bus.garbled {
                 let lagging = bus
@@ -1181,6 +1200,13 @@ mod tests {
 
         fn scans(&self) -> usize {
             self.0.lock().unwrap().scans
+        }
+
+        /// Makes the next `count` scans fail.
+        fn fail_next(&self, count: usize) {
+            let mut bus = self.0.lock().unwrap();
+            let next = bus.scans + 1;
+            bus.failing.extend(next..next + count);
         }
     }
 
@@ -2298,6 +2324,169 @@ mod tests {
             assert!(Instant::now() < deadline, "the reader did not end");
             std::thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    fn failed(deck: &mut Deck) {
+        assert!(matches!(
+            deck.poll(Duration::ZERO),
+            Err(Error::Backend(message)) if message.contains("scripted")
+        ));
+    }
+
+    #[test]
+    fn input_taken_before_a_failed_rescan_comes_with_the_next_poll() {
+        for count in [1, 3] {
+            let bus = FakeBackend::default();
+            let knobs = bus.plug(ModuleKind::Knobs3, "N", &[1]);
+            let mut deck = bus.deck(DeckOptions::default());
+            poll(&mut deck);
+
+            for i in 0..count {
+                knobs.push_input(&knob_step(i));
+            }
+            knobs.settle();
+            bus.fail_next(1);
+            failed(&mut deck);
+            let expected: Vec<String> = (0..count).map(|i| turn("N", i)).collect();
+            assert_eq!(summary(&poll(&mut deck)), expected);
+            // Once only.
+            assert!(poll(&mut deck).is_empty());
+        }
+    }
+
+    #[test]
+    fn a_loss_taken_before_a_failed_rescan_is_still_reported() {
+        let bus = FakeBackend::default();
+        let knobs = bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let mut deck = bus.deck(DeckOptions::default());
+        queue_of(&deck, 2);
+        poll(&mut deck);
+
+        for i in 0..5 {
+            knobs.push_input(&knob_step(i % 3));
+        }
+        knobs.settle();
+        bus.fail_next(1);
+        failed(&mut deck);
+        assert_eq!(
+            summary(&poll(&mut deck)),
+            [turn("N", 0), turn("N", 1), "N:lost3".to_owned()]
+        );
+        assert!(poll(&mut deck).is_empty());
+        // The queue has room again.
+        knobs.push_input(&knob_step(2));
+        knobs.settle();
+        assert_eq!(summary(&poll(&mut deck)), [turn("N", 2)]);
+    }
+
+    #[test]
+    fn a_departure_taken_before_a_failed_rescan_comes_with_the_next_poll() {
+        let bus = FakeBackend::default();
+        let knobs = bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let mut deck = bus.deck(DeckOptions::default());
+        poll(&mut deck);
+
+        knobs.unplug();
+        reader_ended(&knobs);
+        bus.fail_next(1);
+        failed(&mut deck);
+        assert_eq!(deck.modules().count(), 0);
+        // Still listed and still dead: the rescan of this poll cannot open it.
+        assert_eq!(summary(&poll(&mut deck)), ["-N", "!N"]);
+        assert!(poll(&mut deck).is_empty());
+    }
+
+    #[test]
+    fn what_a_rescan_did_before_it_failed_is_reported() {
+        let bus = FakeBackend::default();
+        bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        bus.plug(ModuleKind::Rollers2, "R", &[2]);
+        let mut deck = bus.deck(DeckOptions::default());
+        assert_eq!(summary(&poll(&mut deck)), ["+N", "+R"]);
+
+        // The rescan drops the rollers and opens the keys, then fails on the
+        // second look at the list that every display module gets.
+        bus.unplug("R");
+        bus.plug(ModuleKind::Keys15, "K", &[3]);
+        let second = bus.scans() + 2;
+        bus.0.lock().unwrap().failing.push(second);
+        failed(&mut deck);
+        // The keys were closed again; the rollers are gone.
+        let open: Vec<&str> = deck.modules().map(|m| m.id.as_str()).collect();
+        assert_eq!(open, ["N"]);
+        assert_eq!(summary(&poll(&mut deck)), ["-R", "+K"]);
+        assert!(poll(&mut deck).is_empty());
+        assert_eq!(deck.modules().count(), 2);
+    }
+
+    #[test]
+    fn a_failed_rescan_does_not_mix_up_two_connections() {
+        let bus = FakeBackend::default();
+        let old = bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let mut deck = bus.deck(DeckOptions::default());
+        poll(&mut deck);
+
+        old.push_input(&knob_step(0));
+        old.settle();
+        // Moved to another place: a new connection of the same module.
+        bus.unplug("N");
+        let new = bus.plug(ModuleKind::Knobs3, "N", &[2]);
+        bus.fail_next(1);
+        failed(&mut deck);
+        assert_eq!(
+            summary(&poll(&mut deck)),
+            [turn("N", 0), "-N".to_owned(), "+N".to_owned()]
+        );
+
+        // The first connection's reader hands in nothing more.
+        old.push_input(&knob_step(1));
+        old.settle();
+        new.push_input(&knob_step(2));
+        new.settle();
+        assert_eq!(summary(&poll(&mut deck)), [turn("N", 2)]);
+    }
+
+    #[test]
+    fn an_announced_module_is_found_after_a_failed_rescan() {
+        let bus = FakeBackend::default();
+        let mut deck = bus.event_deck(DeckOptions::default());
+        assert!(poll(&mut deck).is_empty());
+
+        bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        bus.fail_next(1);
+        bus.changed();
+        assert!(deck.poll(5 * SECOND).is_err());
+        // Not a minute later, when the safety rescan would be due.
+        let started = Instant::now();
+        assert_eq!(summary(&deck.poll(5 * SECOND).unwrap()), ["+N"]);
+        let waited = started.elapsed();
+        assert!(waited >= SECOND / 2 && waited < 3 * SECOND, "{waited:?}");
+    }
+
+    #[test]
+    fn a_list_that_keeps_failing_is_read_once_a_second() {
+        let bus = FakeBackend::default();
+        let mut deck = bus.event_deck(DeckOptions::default());
+        assert!(poll(&mut deck).is_empty());
+        bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        bus.fail_next(1000);
+        bus.changed();
+        let (scans, passes) = (bus.scans(), deck.passes);
+
+        let started = Instant::now();
+        let mut errors = 0;
+        while started.elapsed() < Duration::from_millis(3500) {
+            match deck.poll(Duration::from_millis(3500).saturating_sub(started.elapsed())) {
+                Ok(events) => assert!(events.is_empty()),
+                Err(_) => errors += 1,
+            }
+        }
+        assert!((3..=5).contains(&errors), "{errors} errors");
+        assert_eq!(bus.scans() - scans, errors);
+        assert!(deck.passes - passes < 30, "{} passes", deck.passes - passes);
+
+        bus.0.lock().unwrap().failing.clear();
+        assert_eq!(summary(&deck.poll(5 * SECOND).unwrap()), ["+N"]);
     }
 
     #[test]
