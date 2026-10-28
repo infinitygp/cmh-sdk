@@ -35,8 +35,10 @@ single module are events.
 If reading the device list fails, `poll` returns that error, and nothing
 that already happened is lost: the events gathered before the failure,
 including what a partly done rescan found (modules connected or gone), are
-returned first by the next poll, each once. The list is read again within a
-second, so keep polling after such an error.
+returned by the next poll at once, each once, together with what arrived
+meanwhile; that poll does not read the list. The poll after it does, no
+earlier than a second after the failure, and reports a new failure the same
+way. So keep polling after such an error.
 
 Between polls, `deck.modules()` lists the open modules, `deck.info(&id)`
 describes one and `deck.module(&id)` gives a `&Module` for drawing,
