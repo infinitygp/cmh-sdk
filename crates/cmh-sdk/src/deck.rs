@@ -165,7 +165,7 @@ pub enum DeckEvent {
     /// not confirm software mode. Reported once; the deck keeps retrying on
     /// every rescan and, with device events, whenever the system says the
     /// device list changed and once a second until the module opens or
-    /// leaves the list. On Linux a failure that goes away within two
+    /// leaves the list ([`OpenFailedLeft`](DeckEvent::OpenFailedLeft)). On Linux a failure that goes away within two
     /// seconds of the device appearing (udev has not applied the access rule
     /// yet) is not reported.
     #[non_exhaustive]
@@ -173,6 +173,14 @@ pub enum DeckEvent {
         id: ModuleId,
         interface: HidInterface,
         error: Error,
+    },
+    /// A module that was reported as [`OpenFailed`](DeckEvent::OpenFailed)
+    /// left the list without having been opened: it was unplugged, so what
+    /// was said of it no longer holds. Reported once.
+    #[non_exhaustive]
+    OpenFailedLeft {
+        id: ModuleId,
+        interface: HidInterface,
     },
 }
 
@@ -896,7 +904,15 @@ impl Deck {
             .partition(|slot| is_listed(&slot.info.interface));
         self.slots = kept;
         events.extend(gone.into_iter().map(|s| DeckEvent::Disconnected(s.info)));
-        self.failed.retain(|f| is_listed(f));
+        let (failed, left): (Vec<HidInterface>, Vec<HidInterface>) =
+            std::mem::take(&mut self.failed)
+                .into_iter()
+                .partition(|f| is_listed(f));
+        self.failed = failed;
+        events.extend(left.into_iter().map(|interface| DeckEvent::OpenFailedLeft {
+            id: ModuleId::of(&interface),
+            interface,
+        }));
         self.retrying.retain(|(r, _)| is_listed(r));
 
         for interface in wanted {
@@ -1250,6 +1266,7 @@ mod tests {
                 DeckEvent::RawInput { id, report, .. } => format!("{id}:raw{}", report.len()),
                 DeckEvent::Undecodable { id, .. } => format!("{id}:undecodable"),
                 DeckEvent::OpenFailed { id, .. } => format!("!{id}"),
+                DeckEvent::OpenFailedLeft { id, .. } => format!("x{id}"),
                 DeckEvent::InputLost { id, dropped, .. } => format!("{id}:lost{dropped}"),
             })
             .collect()
@@ -1508,8 +1525,9 @@ mod tests {
         // Still unusable: reported once, then retried silently.
         assert!(poll(&mut deck).is_empty());
 
+        // Gone from the bus: what was said of it ends.
         bus.unplug("N");
-        assert!(poll(&mut deck).is_empty());
+        assert_eq!(summary(&poll(&mut deck)), ["xN"]);
         bus.plug(ModuleKind::Knobs3, "N", &[3]);
         assert_eq!(summary(&poll(&mut deck)), ["+N"]);
     }
@@ -1605,6 +1623,23 @@ mod tests {
         assert!(poll(&mut deck).is_empty());
         bus.0.lock().unwrap().refuse.clear();
         assert_eq!(summary(&poll(&mut deck)), ["+N"]);
+    }
+
+    #[test]
+    fn a_module_that_could_not_be_opened_says_so_once_when_it_is_unplugged() {
+        let bus = FakeBackend::default();
+        bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        let path = bus.0.lock().unwrap().listed[0].path.clone();
+        bus.0.lock().unwrap().refuse.push(path);
+        let mut deck = bus.deck(DeckOptions::default());
+        assert_eq!(summary(&poll(&mut deck)), ["!N"]);
+
+        bus.unplug("N");
+        assert_eq!(summary(&poll(&mut deck)), ["xN"]);
+        assert!(poll(&mut deck).is_empty());
+        // Plugged in again and refused again: told again.
+        bus.plug(ModuleKind::Knobs3, "N", &[1]);
+        assert_eq!(summary(&poll(&mut deck)), ["!N"]);
     }
 
     #[test]

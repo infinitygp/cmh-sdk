@@ -37,7 +37,7 @@ needs no permission. The kernel creates a node before udev has given the
 user access to it; the deck tries a failed open again for two seconds, and
 again whenever the attributes of a `hidraw` node change, before it reports
 `OpenFailed`; it then keeps trying once a second until the module opens or is
-gone. If `/dev` cannot be watched, or the watch ends, the deck rescans once a
+gone, which it reports as `OpenFailedLeft`. If `/dev` cannot be watched, or the watch ends, the deck rescans once a
 second instead.
 
 ## Testing from WSL2
